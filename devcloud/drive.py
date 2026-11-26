@@ -12,6 +12,7 @@ import os
 import posixpath
 import re
 import subprocess
+from functools import cache
 
 from . import core, secrets
 from .core import Fail, say
@@ -34,10 +35,16 @@ def remote(p: core.Project, rel: str = "") -> str:
     return f"{REMOTE}:{posixpath.join(ROOT, p.name, clean(rel)).rstrip('/')}"
 
 
+@cache
+def _drive_secrets() -> dict:
+    # one age decrypt per process, not one per rclone call
+    return {k: v for k, v in secrets.env_for(None).items() if k.startswith(PREFIX)}
+
+
 def rclone_env() -> dict:
     env = dict(os.environ)
     if not any(k.startswith(PREFIX) for k in env):
-        env.update({k: v for k, v in secrets.env_for(None).items() if k.startswith(PREFIX)})
+        env.update(_drive_secrets())
     if not any(k.startswith(PREFIX) for k in env):
         raise Fail("no Drive remote yet: dc drive login")
     env.setdefault("RCLONE_CONFIG", os.path.join(core.DC, "rclone-unused.conf"))
@@ -101,15 +108,19 @@ def push(p: core.Project, paths: list[str]) -> None:
             files.append(path)
         else:
             raise Fail(f"{path}: no such file")
-    m = manifest(p)
-    for f in sorted(files):
-        rel, digest = _rel(p, f), core.file_sha(f)
-        if m.get(rel, {}).get("sha256") == digest:
-            continue
-        say(f"up {rel}")
-        rclone("copyto", f, remote(p, rel))
-        m[rel] = {"sha256": digest, "size": os.path.getsize(f)}
-    _save(p, m)
+    m, done = manifest(p), 0
+    try:
+        for f in sorted(files):
+            rel, digest = _rel(p, f), core.file_sha(f)
+            if m.get(rel, {}).get("sha256") == digest:
+                continue
+            say(f"up {rel}")
+            rclone("copyto", f, remote(p, rel))
+            m[rel] = {"sha256": digest, "size": os.path.getsize(f)}
+            done += 1
+    finally:
+        if done:  # an interrupted push keeps what it uploaded
+            _save(p, m)
 
 
 def pull(p: core.Project, paths: list[str]) -> None:
