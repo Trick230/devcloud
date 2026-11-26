@@ -304,10 +304,24 @@ def lock_state(wait: float = 180, stale: float = 600) -> None:
     atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
 
 
+def pull_state() -> None:
+    """Rebase this machine's state commits onto the remote. On a conflict the local version wins
+    (-X theirs, in a rebase: the commit being replayed): the state's files are rewritten whole
+    and claude push has already merged them; a rebase that still fails is aborted, so the repo
+    is never left half-way."""
+    r = git("pull", "-q", "--rebase", "-X", "theirs", cwd=STATE, check=False)
+    if r.returncode == 0:
+        return
+    if any(os.path.isdir(os.path.join(STATE, ".git", d)) for d in ("rebase-merge", "rebase-apply")):
+        git("rebase", "--abort", cwd=STATE, check=False)
+    err = (r.stderr or b"").decode(errors="replace").strip()[-600:]
+    raise Fail(f"git pull --rebase failed in {STATE}: {err}")
+
+
 def ensure_state() -> None:
     lock_state()
     if os.path.isdir(os.path.join(STATE, ".git")):
-        git("pull", "-q", "--rebase", cwd=STATE)
+        pull_state()
         return
     if not gh_token():
         # without a token "repo view" fails for an existing private repo too
@@ -344,7 +358,7 @@ def commit_state(msg: str, paths: list[str]) -> None:
         git("-c", "user.name=devcloud", "-c", "user.email=devcloud@users.noreply.github.com",
             "commit", "-q", "-m", msg, cwd=STATE)
     if upstream:
-        git("pull", "-q", "--rebase", cwd=STATE)
+        pull_state()
         git("push", "-q", cwd=STATE)
     else:
         git("push", "-q", "-u", "origin", "HEAD:main", cwd=STATE)
