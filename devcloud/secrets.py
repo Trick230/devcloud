@@ -63,8 +63,15 @@ def _hash(text: str | None) -> str | None:
 
 
 def store(name: str, text: str) -> None:
+    rel = os.path.relpath(_state_file(name), core.STATE)
+    rec = core.read(core.recipients())
     core.write(_state_file(name), core.encrypt(text.encode()))
-    core.commit_state(f"secrets {name}", [os.path.relpath(_state_file(name), core.STATE)])
+    core.commit_state(f"secrets {name}", [rel])
+    if core.read(core.recipients()) != rec:
+        # a key rotation came in with the pull: this file went out to the old key, redo it
+        core.ensure_key()
+        core.write(_state_file(name), core.encrypt(text.encode()))
+        core.commit_state(f"secrets {name} (new key)", [rel])
 
 
 def pull(p: core.Project, force: bool = False) -> None:
@@ -132,12 +139,39 @@ def env_for(p: core.Project | None) -> dict[str, str]:
     return env
 
 
+USES = "DC_GLOBAL"
+
+
+def _prefix(group: str) -> str:
+    from . import drive
+    return drive.PREFIX if group.lower() == "drive" else group.upper().rstrip("_") + "_"
+
+
+def for_github(glob: dict[str, str], own: dict[str, str]) -> dict[str, str]:
+    """What a project's jobs get: only the global keys of the groups its .env names in
+    DC_GLOBAL (e.g. `DC_GLOBAL=drive modal kaggle`; a group is a key prefix, drive = the rclone
+    remote), then its own keys. A leaked job secret then exposes only what that project uses."""
+    own = dict(own)
+    prefixes = [_prefix(g) for g in own.pop(USES, "").replace(",", " ").split()]
+    env = {k: v for k, v in glob.items() if any(k.startswith(x) for x in prefixes)}
+    env.update(own)
+    return env
+
+
 def to_github(p: core.Project) -> None:
-    """The global and project env as one Actions secret, DC_ENV, of the project's repo."""
+    """The project's job secrets (for_github) as one Actions secret, DC_ENV, of its repo;
+    removed when there are none."""
     if not p.repo:
         raise Fail(f"{p.name}: no GitHub origin")
-    body = "".join(f"{k}={v}\n" for k, v in env_for(p).items())
-    if not body:
-        raise Fail("nothing to send (no global or project secrets stored)")
+    env = for_github(parse(state_text(GLOBAL) or ""), parse(state_text(p.name) or ""))
+    if not env:
+        r = core.gh("secret", "delete", "DC_ENV", "-R", p.repo, check=False)
+        err = (r.stderr or b"").decode(errors="replace")
+        if r.returncode != 0 and "404" not in err and "not found" not in err.lower():
+            raise Fail(f"{p.repo}: could not remove DC_ENV: {err.strip()[-300:]}")
+        say(f"{p.repo}: no job secrets (DC_GLOBAL in its .env picks global ones); "
+            f"{'Actions secret DC_ENV removed' if r.returncode == 0 else 'no DC_ENV to remove'}")
+        return
+    body = "".join(f"{k}={v}\n" for k, v in env.items())
     core.gh("secret", "set", "DC_ENV", "-R", p.repo, input=body.encode())
-    say(f"{p.repo}: Actions secret DC_ENV set ({len(body.splitlines())} keys)")
+    say(f"{p.repo}: Actions secret DC_ENV set ({len(env)} keys: {', '.join(sorted(env))})")

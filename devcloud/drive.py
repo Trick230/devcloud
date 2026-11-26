@@ -7,6 +7,7 @@ repo: path, size, sha256); `ls`/`get`/`put` work on any path inside the project 
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 import posixpath
@@ -60,21 +61,32 @@ def rclone(*args: str, capture: bool = False, check: bool = True) -> str:
     return (r.stdout or b"").decode(errors="replace")
 
 
+SCOPE = "drive.file"  # only the files dc itself created: a leaked token cannot reach the rest of the Drive
+
+
 def login(client: list[str] | None = None) -> None:
     """Google sign-in in the browser; the token goes into the global secrets. With CLIENT_ID
     CLIENT_SECRET (an OAuth client of type "Desktop app" in Google Cloud), rclone uses that client
-    instead of its shared one, which Google is retiring."""
+    instead of its shared one, which Google is retiring; without them, the stored client if any.
+    Scope drive.file: dc sees only what it uploaded itself (files from other apps stay invisible)."""
     if client and len(client) != 2:
         raise Fail("dc drive login [CLIENT_ID CLIENT_SECRET]")
-    r = subprocess.run([core.tool("rclone"), "authorize", "drive", *(client or [])], capture_output=True,
+    if not client:
+        g = _drive_secrets()
+        if g.get(PREFIX + "CLIENT_ID") and g.get(PREFIX + "CLIENT_SECRET"):
+            client = [g[PREFIX + "CLIENT_ID"], g[PREFIX + "CLIENT_SECRET"]]
+            say("using the stored OAuth client")
+    blob = {"scope": SCOPE, **({"client_id": client[0], "client_secret": client[1]} if client else {})}
+    b64 = base64.urlsafe_b64encode(json.dumps(blob).encode()).decode().rstrip("=")
+    r = subprocess.run([core.tool("rclone"), "authorize", "drive", b64], capture_output=True,
                        env=dict(os.environ, RCLONE_CONFIG=os.path.join(core.DC, "rclone-unused.conf")))
     text = r.stdout.decode(errors="replace")
     m = re.search(r"--->\s*(\{.*?\})\s*<---", text, re.S)
     if r.returncode != 0 or not m:
         raise Fail("rclone authorize did not return a token")
     token = json.dumps(json.loads(m.group(1)), separators=(",", ":"))
-    keys = {PREFIX + "TYPE": "drive", PREFIX + "SCOPE": "drive", PREFIX + "TOKEN": token}
-    # the token belongs to the client that issued it: a login without one drops the old client
+    keys = {PREFIX + "TYPE": "drive", PREFIX + "SCOPE": SCOPE, PREFIX + "TOKEN": token}
+    # the token belongs to the client that issued it
     keys.update({PREFIX + "CLIENT_ID": client[0] if client else None,
                  PREFIX + "CLIENT_SECRET": client[1] if client else None})
     secrets.set_global(keys)

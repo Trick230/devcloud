@@ -31,6 +31,15 @@ class Env(unittest.TestCase):
         e = secrets.parse('# c\nA=1\n B = "two words" \nC=\'x=y\'\nbad\n')
         self.assertEqual(e, {"A": "1", "B": "two words", "C": "x=y"})
 
+    def test_for_github(self):
+        g = {drive.PREFIX + "TOKEN": "t", "MODAL_TOKEN_ID": "m", "KAGGLE_USERNAME": "k"}
+        self.assertEqual(secrets.for_github(g, {}), {})                      # nothing by default
+        self.assertEqual(secrets.for_github(g, {"X": "1"}), {"X": "1"})
+        e = secrets.for_github(g, {"DC_GLOBAL": "drive, modal", "X": "1"})
+        self.assertEqual(e, {drive.PREFIX + "TOKEN": "t", "MODAL_TOKEN_ID": "m", "X": "1"})
+        self.assertEqual(secrets.for_github(g, {"DC_GLOBAL": "kaggle", "KAGGLE_USERNAME": "own"}),
+                         {"KAGGLE_USERNAME": "own"})                        # the project's wins
+
 
 class Drive(unittest.TestCase):
     def test_clean(self):

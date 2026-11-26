@@ -12,13 +12,17 @@
   dc test                   unit tests
   dc key                    prints the age key (to copy to another machine or a cloud
                             environment's DC_AGE_KEY)
+  dc key rotate             a new age key, every secret in the state repo re-encrypted to it
 
   dc secrets pull|push      the project's .env <-> the state repo (lines after `# dc: local`
                             stay here); --force on a conflict
-  dc secrets gh             the global + project secrets as the Actions secret DC_ENV
+  dc secrets gh             the project's secrets + the global groups its .env names in
+                            DC_GLOBAL (e.g. `DC_GLOBAL=drive modal kaggle`) as the Actions
+                            secret DC_ENV (removed when empty)
   dc secrets set [--global] KEY=VALUE...   /  dc secrets unset --global KEY...
 
-  dc drive login [ID SECRET] Google sign-in (browser), own OAuth client optional; global secrets
+  dc drive login [ID SECRET] Google sign-in (browser, scope drive.file), own OAuth client (stored
+                            one reused without ID SECRET); global secrets
   dc drive push|pull [PATH...]   project files <-> <Drive>/Projects/<project>/, checked by sha256
   dc drive forget [--delete] PATH...
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
@@ -156,6 +160,12 @@ def main(argv: list[str]) -> int:
             sys.stdout.write(web.env_text())
             return 0
         if cmd == "key":
+            if rest[:1] == ["rotate"]:
+                n = len(core.rotate_key())
+                say(f"new age key in {core.KEY}, {n} file(s) re-encrypted and pushed. Update "
+                    "DC_AGE_KEY in every web environment (dc web-env), the other machines' "
+                    "key files and your safe copy")
+                return 0
             sys.stdout.write(core.read(core.KEY).decode())
             return 0
         if cmd == "ci":

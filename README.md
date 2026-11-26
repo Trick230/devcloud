@@ -37,8 +37,9 @@ the key once: `dc key` prints it on a machine that has it; put it in `DC_AGE_KEY
 One per Claude account. `dc web-env` prints all of it with the real values (variables, setup
 script with the `--prep` lines of the state repo's `web/prep.txt`, allowlist), ready to paste.
 
-Environment variables: `DC_AGE_KEY` (from `dc key`) and `DC_GH_TOKEN` (a token with `repo` scope; `GH_TOKEN` also works
-where the sandbox leaves it alone).
+Environment variables: `DC_AGE_KEY` (from `dc key`) and `DC_GH_TOKEN` (best a fine-grained token limited to the
+devcloud, devcloud-state and project repos: Contents, Actions, Secrets and Workflows read/write;
+`GH_TOKEN` also works where the sandbox leaves it alone).
 Setup script:
 
 ```sh
@@ -79,11 +80,15 @@ from it.
 ```sh
 dc secrets push            # in a project: its .env -> state repo (lines after "# dc: local" stay)
 dc secrets pull
-dc secrets gh              # global + project secrets -> the repo's Actions secret DC_ENV
+dc secrets gh              # project secrets + the global groups its .env names in DC_GLOBAL
+                           # (e.g. DC_GLOBAL=drive modal kaggle) -> the repo's Actions secret DC_ENV
+dc key rotate              # new age key, every stored secret re-encrypted (then update DC_AGE_KEY)
 
-dc drive login             # once, in a browser (rclone's shared client, retired by Google in 2026)
-dc drive login ID SECRET   # same with your own OAuth client: Google Cloud > APIs > Drive API on,
-                           # Credentials > OAuth client ID > Desktop app
+dc drive login ID SECRET   # once, in a browser, with your own OAuth client: Google Cloud > APIs >
+                           # Drive API on, Credentials > OAuth client ID > Desktop app; app published
+dc drive login             # again later: reuses the stored client (scope drive.file: dc only sees
+                           # the files it uploaded itself, never the rest of the Drive; files from
+                           # another client or the Drive web page stay invisible: dc drive ls after)
 dc drive push media/       # project files -> Drive, recorded in the manifest
 dc drive pull              # everything in the manifest, verified
 dc drive ls refs  /  dc drive get refs/a.flac in/  /  dc drive put out/ synced
@@ -111,8 +116,9 @@ dc gpu --long gpu/separate.json --in src.flac --out stems/ -- --model M   # Kagg
 - GPU tokens (`MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `KAGGLE_USERNAME`/`KAGGLE_KEY`) live in
   the global secrets (`dc secrets set --global`). Modal runs with a 0 $ spend limit on the
   monthly credits; Kaggle's GPU quota is weekly.
-- `DC_ENV` holds the Drive token, which can read the whole Drive. Workflows from forks never get
-  repo secrets, but anyone with write access to the repo does.
+- `DC_ENV` holds only what the project names in `DC_GLOBAL` (e.g. the Drive token, limited to
+  dc's own files by drive.file). Workflows from forks never get repo secrets, but anyone with
+  write access to the repo does.
 - Deletions are not propagated by `dc claude`; a file changed on two machines keeps the local copy
   and leaves the other as `<name>.dc-remote`.
 

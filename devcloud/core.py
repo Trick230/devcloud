@@ -419,13 +419,19 @@ def recipients() -> str:
 
 
 def ensure_key() -> None:
-    if not os.path.isfile(KEY) and os.environ.get("DC_AGE_KEY"):
-        write(KEY, os.environ["DC_AGE_KEY"].strip().encode() + b"\n", private=True)
+    env_key = os.environ.get("DC_AGE_KEY", "").strip()
     have_rec = os.path.isfile(recipients())
+    if env_key and (not os.path.isfile(KEY) or env_key not in read(KEY).decode()):
+        # the environment replaces a key file only when the state repo takes its key (a restored
+        # web VM after a rotation), never a newer key with a stale variable
+        env_pub = out(run([tool("age-keygen"), "-y"], input=env_key.encode() + b"\n", check=False))
+        if not os.path.isfile(KEY) or (have_rec and env_pub and env_pub in read(recipients()).decode()):
+            write(KEY, env_key.encode() + b"\n", private=True)
     if os.path.isfile(KEY):
         pub = out(run([tool("age-keygen"), "-y", KEY]))
         if have_rec and pub not in read(recipients()).decode():
-            raise Fail(f"{KEY} does not match the state repo's recipients.txt")
+            raise Fail(f"{KEY} does not match the state repo's recipients.txt (key rotated? copy "
+                       "the new one: `dc key` on the machine that rotated it)")
         if not have_rec:
             write(recipients(), pub.encode() + b"\n")
             commit_state("age recipient", ["recipients.txt"])
@@ -439,6 +445,40 @@ def ensure_key() -> None:
         os.chmod(KEY, 0o600)
     write(recipients(), out(run([tool("age-keygen"), "-y", KEY])).encode() + b"\n")
     commit_state("age recipient", ["recipients.txt"])
+
+
+def rotate_key() -> list[str]:
+    """A new age key: every .age file of the state repo decrypted with the old one (all before
+    anything changes), re-encrypted to the new one, recipients.txt replaced, one commit. The old
+    key stays as age-key.old.txt until the push went through. Returns the re-encrypted paths."""
+    if os.environ.get("DC_AGE_KEY") or EPHEMERAL:
+        raise Fail("rotate on a lasting machine with the key file (not where DC_AGE_KEY sets it)")
+    ensure_state()
+    ensure_key()
+    rels = [f for f in out(git("ls-files", "*.age", cwd=STATE)).splitlines() if f]
+    plain = {f: decrypt(read(os.path.join(STATE, f))) for f in rels}
+    new, old = KEY + ".new", os.path.join(DC, "age-key.old.txt")
+    if os.path.exists(new) or os.path.exists(old):
+        raise Fail(f"{new} or {old} left by an unfinished rotation: check which key opens the "
+                   "state repo's files before removing either")
+    run([tool("age-keygen"), "-o", new])
+    pub = out(run([tool("age-keygen"), "-y", new]))
+    try:
+        write(recipients(), pub.encode() + b"\n")
+        for f, data in plain.items():
+            write(os.path.join(STATE, f), encrypt(data))
+        os.replace(KEY, old)
+    except BaseException:
+        # back to the old key's files: nothing half-rotated stays in the working tree
+        git("checkout", "--", "recipients.txt", *rels, cwd=STATE, check=False)
+        os.remove(new)
+        raise
+    os.replace(new, KEY)
+    if not WIN:
+        os.chmod(KEY, 0o600)
+    commit_state("age key rotated", ["recipients.txt", *rels])
+    os.remove(old)
+    return rels
 
 
 def encrypt(data: bytes) -> bytes:
