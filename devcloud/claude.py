@@ -13,7 +13,8 @@
 Never credentials (.credentials.json, auth.json), sessions, history or caches. Each file is
 merged three-way against what this machine last synced (.dc/sync.json): a side that did not
 change takes the other; a file changed on both sides keeps the local copy and writes the
-stored one next to it as <name>.dc-remote. Deleted files are not propagated.
+stored one next to it as <name>.dc-remote (on an ephemeral machine, a file it never synced
+takes the stored copy). Deleted files are not propagated.
 """
 from __future__ import annotations
 
@@ -137,6 +138,8 @@ def pull(quiet: bool = False) -> None:
         stored = os.path.join(core.STATE, *rel.split("/"))
         lh, sh = core.file_sha(local), core.file_sha(stored)
         what = core.decide(lh, sync.get(rel), sh)
+        if what == "conflict" and core.EPHEMERAL and rel not in sync:
+            what = "take_state"   # a fresh sandbox's own defaults (settings.json) give way to the stored setup
         if what == "take_state":
             core.write(local, core.read(stored))
             sync[rel] = sh

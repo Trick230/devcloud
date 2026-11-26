@@ -30,7 +30,14 @@ Setup script:
 
 ```sh
 git clone https://github.com/<owner>/devcloud ~/devcloud && ~/devcloud/dc setup && ~/devcloud/dc claude pull --quiet
+~/devcloud/dc secrets pull || true     # the project's .env, when the script runs in its folder
 ```
+
+The pull brings `~/.claude` (settings for Linux included), whose hooks run
+`~/.claude/tools/dc-hook.sh`: `dc claude pull` at the start, `dc claude push` after every answer
+(a sandbox can die at any time) and at the end. If the session hands off (`handoff.py`), the
+hand-off goes into the project's memory, and the next session on the repo, cloud or PC, starts
+from it.
 
 ## Use
 
