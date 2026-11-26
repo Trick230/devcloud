@@ -96,6 +96,7 @@ def ci() -> int:
             for part in v.splitlines():
                 print(f"::add-mask::{part}", flush=True)
     os.environ.update(env)
+    core.setup_tools()                           # a fresh runner: age, gh, rclone
     p = core.need_project()
     dot = os.path.join(p.root, ".env")
     if env and not os.path.exists(dot):          # tools that read .env find their tokens
