@@ -1,4 +1,4 @@
-"""devcloud: secrets, Google Drive, the Claude setup and CPU jobs, the same on every machine.
+"""devcloud: secrets, Google Drive, the Claude setup, CPU and GPU jobs, the same on every machine.
 
   dc setup                  tools (age, gh, rclone) into .dc/, GitHub sign-in, the state repo,
                             the age key (the first machine creates it)
@@ -25,6 +25,10 @@
   dc run --each [...] "CMD1" "CMD2"...  one job per command, in parallel
   dc brief [--in ..] [--out ..] -- COMMAND...   the same job as a task for a Claude Code
                             web session (when Actions does not fit)
+
+  dc gpu [--long] [--gpu TYPE] JOB.json --in FILE... --out DIR [-- ARGS...]
+                            one GPU job on Modal, then Kaggle, then Colab (manual); JOB.json
+                            and the script's contract: devcloud/gpu.py
 """
 from __future__ import annotations
 
@@ -34,7 +38,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from devcloud import claude, core, drive, run, secrets  # noqa: E402
+from devcloud import claude, core, drive, gpu, run, secrets  # noqa: E402
 from devcloud.core import Fail, say  # noqa: E402
 
 
@@ -161,6 +165,20 @@ def main(argv: list[str]) -> int:
         if cmd == "init":
             run.init(core.need_project())
             return 0
+        if cmd == "gpu":
+            ap.add_argument("job")
+            ap.add_argument("--in", dest="inp", nargs="+", action="extend", default=[])
+            ap.add_argument("--out", required=True)
+            ap.add_argument("--long", action="store_true")
+            ap.add_argument("--gpu")
+            cut = rest.index("--") if "--" in rest else len(rest)
+            a, args = ap.parse_args(rest[:cut]), rest[cut + 1:]
+            if a.gpu:
+                os.environ["DC_GPU_TYPE"] = a.gpu
+            if not core.CI:
+                core.ensure_state()
+                core.ensure_key()
+            return gpu.dispatch(core.project(), a.job, a.inp, a.out, args, a.long)
         if cmd in ("run", "brief"):
             ap.add_argument("--os", default="ubuntu-latest")
             ap.add_argument("--in", dest="inp", action="append", default=[])

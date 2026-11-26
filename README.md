@@ -4,10 +4,13 @@ One portable CLI, `dc`, that keeps my projects working the same on every machine
 Linux, cloud VMs, Claude Code web sessions, GitHub Actions runners):
 
 - **secrets**: each project's `.env`, age-encrypted in a private state repo (`<owner>/devcloud-state`)
-- **Drive**: copyrighted or big files in `<Google Drive>/<project>/`, checked by sha256, never in git
+- **Drive**: copyrighted or big files in `<Google Drive>/Projects/<project>/`, checked by sha256, never in git
 - **Claude setup**: `~/.claude` and `~/.codex` config, per-project memory and the projects' local agent files
 - **CPU jobs**: `dc run -- CMD` runs on GitHub Actions in the project's repo (up to 6 h per job,
   parallel with `--each`); `dc brief` writes the same job as a task for a Claude Code web session
+- **GPU jobs**: `dc gpu JOB.json --in FILE --out DIR` runs a project's script on a free cloud GPU:
+  Modal, then Kaggle, then Colab (manual steps); the spec and the script's contract are in
+  `devcloud/gpu.py`, the modal and kaggle CLIs go into `.dc/`
 
 Everything it needs (uv, Python, age, gh, rclone; pinned by sha256) goes into `.dc/` next to it.
 Nothing is installed on the system and nothing is read from PATH except git and bash.
@@ -29,9 +32,19 @@ Environment variables: `DC_AGE_KEY` (from `dc key`) and `GH_TOKEN` (a token with
 Setup script:
 
 ```sh
-git clone https://github.com/<owner>/devcloud ~/devcloud && ~/devcloud/dc setup && ~/devcloud/dc claude pull --quiet
-~/devcloud/dc secrets pull || true     # the project's .env, when the script runs in its folder
+#!/bin/sh
+git clone -q https://github.com/<owner>/devcloud ~/devcloud 2>/dev/null || git -C ~/devcloud pull -q
+~/devcloud/dc setup
+~/devcloud/dc claude pull --quiet
 ```
+
+The script runs before the repo is cloned, so the project's `.env` comes from the SessionStart
+hook (`dc secrets pull` in a sandbox without one).
+
+Network allowlist: github.com, objects.githubusercontent.com,
+release-assets.githubusercontent.com, pypi.org, files.pythonhosted.org, download.pytorch.org,
+static.rust-lang.org, crates.io, static.crates.io, www.kaggle.com, kaggle.com, modal.com,
+api.modal.com, www.googleapis.com, oauth2.googleapis.com, *.googleusercontent.com
 
 The pull brings `~/.claude` (settings for Linux included), whose hooks run
 `~/.claude/tools/dc-hook.sh`: `dc claude pull` at the start, `dc claude push` after every answer
@@ -59,6 +72,9 @@ dc run -- ./lls test all
 dc run --in refs:in --out out:results -- ./lls batch in out
 dc run --each "./lls test pal" "./lls test tempo"
 dc brief -- ./lls batch in out
+
+dc gpu gpu/separate.json --in src.flac --out stems/              # Modal -> Kaggle -> Colab
+dc gpu --long gpu/separate.json --in src.flac --out stems/ -- --model M   # Kaggle first
 ```
 
 `dc help` lists everything.
@@ -67,6 +83,9 @@ dc brief -- ./lls batch in out
 
 - Artifacts and logs of a public repo are public. Anything copyrighted goes in and out through
   Drive (`--in`, `--out`), never `--artifact`.
+- GPU tokens (`MODAL_TOKEN_ID`/`MODAL_TOKEN_SECRET`, `KAGGLE_USERNAME`/`KAGGLE_KEY`) live in
+  the global secrets (`dc secrets set --global`). Modal runs with a 0 $ spend limit on the
+  monthly credits; Kaggle's GPU quota is weekly.
 - `DC_ENV` holds the Drive token, which can read the whole Drive. Workflows from forks never get
   repo secrets, but anyone with write access to the repo does.
 - Deletions are not propagated by `dc claude`; a file changed on two machines keeps the local copy
