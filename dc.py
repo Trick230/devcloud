@@ -23,7 +23,7 @@
   dc drive forget [--delete] PATH...
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
 
-  dc claude pull|push [--quiet]   ~/.claude, ~/.codex, memory and the projects' agent files
+  dc claude pull|push [--quiet]   ~/.claude, memory and the projects' agent files
   dc report push FILE       a web session's boot report into the state repo (dc-hook.sh)
   dc report [show]          the project's last web boot report, read on another machine
 

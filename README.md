@@ -5,7 +5,7 @@ Linux, cloud VMs, Claude Code web sessions, GitHub Actions runners):
 
 - **secrets**: each project's `.env`, age-encrypted in a private state repo (`<owner>/devcloud-state`)
 - **Drive**: copyrighted or big files in `<Google Drive>/Projects/<project>/`, checked by sha256, never in git
-- **Claude setup**: `~/.claude` and `~/.codex` config, per-project memory and the projects' local agent files
+- **Claude setup**: `~/.claude` config, per-project memory and the projects' local agent files
 - **CPU jobs**: `dc run -- CMD` runs on GitHub Actions in the project's repo (up to 6 h per job,
   parallel with `--each`; a Claude Code web session pushes its `claude/*` branch first); `dc brief` writes the same job as a task for a Claude Code web session
 - **GPU jobs**: `dc gpu JOB.json --in FILE --out DIR` runs a project's script on a free cloud GPU:

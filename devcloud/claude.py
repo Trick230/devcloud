@@ -1,16 +1,14 @@
-"""The agent setup that makes Claude Code (and Codex) work, in the state repo under claude/:
+"""The agent setup that makes Claude Code work, in the state repo under claude/:
 
   global/claude/  ~/.claude: CLAUDE.md, agents/, tools/ (scripts), themes/, keybindings.json,
                   statusline-command.sh
-  global/codex/   ~/.codex: AGENTS.md, rules/
-  os/<os>/        settings that hold this OS's paths: ~/.claude/settings.json,
-                  ~/.codex/config.toml, ~/.codex/hooks.json
+  os/<os>/        settings that hold this OS's paths: ~/.claude/settings.json
   memory/<proj>/  ~/.claude/projects/<slug of the project path>/memory/ (the slug differs per
                   machine, the project name does not)
-  projects/<proj>/ the project's agent files that git does not track (AGENTS.md, CLAUDE.md,
-                  CLAUDE.local.md, AGENTS.override.md, .claude/, .agents/)
+  projects/<proj>/ the project's agent files that git does not track (CLAUDE.md,
+                  CLAUDE.local.md, .claude/, .agents/)
 
-Never credentials (.credentials.json, auth.json), sessions, history or caches. Each file is
+Never credentials (.credentials.json), sessions, history or caches. Each file is
 merged three-way against what this machine last synced (.dc/sync.json): a side that did not
 change takes the other; a file changed on both sides keeps the local copy and writes the
 stored one next to it as <name>.dc-remote (on an ephemeral machine, a file it never synced
@@ -29,10 +27,9 @@ from .core import say
 GLOBAL = {   # state prefix: (home subdir, files, dirs (recursive), file patterns in dirs)
     "global/claude": (".claude", ["CLAUDE.md", "keybindings.json", "statusline-command.sh"],
                       ["agents", "tools", "themes"]),
-    "global/codex": (".codex", ["AGENTS.md"], ["rules"]),
 }
-PER_OS = {"claude": (".claude", ["settings.json"]), "codex": (".codex", ["config.toml", "hooks.json"])}
-PROJECT_FILES = ["AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"]
+PER_OS = {"claude": (".claude", ["settings.json"])}
+PROJECT_FILES = ["CLAUDE.md", "CLAUDE.local.md"]
 PROJECT_DIRS = [".claude", ".agents"]
 SKIP = re.compile(r"(^|/)(__pycache__|node_modules)(/|$)|\.pyc$|(^|/)settings\.local\.json$"
                   r"|\.dc-remote$|(^|/)\.credentials\.json$")
@@ -101,7 +98,7 @@ def _from_state(rel: str, projects: dict[str, core.Project]) -> str | None:
     """Where a stored file goes on this machine (None: not here)."""
     h = core.home()
     parts = rel.split("/")
-    if parts[:2] == ["claude", "global"] and len(parts) > 3 and parts[2] in ("claude", "codex"):
+    if parts[:2] == ["claude", "global"] and len(parts) > 3 and parts[2] == "claude":
         return os.path.join(h, "." + parts[2], *parts[3:])
     if parts[:2] == ["claude", "os"] and len(parts) > 4:
         return os.path.join(h, "." + parts[3], *parts[4:]) if parts[2] == core.OS else None
