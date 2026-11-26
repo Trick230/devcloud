@@ -333,11 +333,17 @@ def ensure_state() -> None:
 
 def commit_state(msg: str, paths: list[str]) -> None:
     git("add", "--", *paths, cwd=STATE)
+    upstream = git("rev-parse", "-q", "--verify", "@{u}", cwd=STATE, check=False).returncode == 0
     if git("diff", "--cached", "--quiet", cwd=STATE, check=False).returncode == 0:
-        return
-    git("-c", "user.name=devcloud", "-c", "user.email=devcloud@users.noreply.github.com",
-        "commit", "-q", "-m", msg, cwd=STATE)
-    if git("rev-parse", "-q", "--verify", "@{u}", cwd=STATE, check=False).returncode == 0:
+        # nothing new, but commits an earlier failed push left behind still go out
+        ahead = upstream and git("rev-list", "--count", "@{u}..HEAD", cwd=STATE,
+                                 check=False).stdout.strip() not in (b"", b"0")
+        if not ahead:
+            return
+    else:
+        git("-c", "user.name=devcloud", "-c", "user.email=devcloud@users.noreply.github.com",
+            "commit", "-q", "-m", msg, cwd=STATE)
+    if upstream:
         git("pull", "-q", "--rebase", cwd=STATE)
         git("push", "-q", cwd=STATE)
     else:
