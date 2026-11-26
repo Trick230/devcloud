@@ -260,6 +260,9 @@ def ensure_state() -> None:
     if os.path.isdir(os.path.join(STATE, ".git")):
         git("pull", "-q", "--rebase", cwd=STATE)
         return
+    if not gh_token():
+        # without a token "repo view" fails for an existing private repo too
+        raise Fail("no GitHub token: set GH_TOKEN or run dc setup")
     repo = state_repo()
     if gh("repo", "view", repo, "--json", "name", check=False).returncode != 0:
         say(f"creating the private repo {repo}")
