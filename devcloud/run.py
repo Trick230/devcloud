@@ -102,7 +102,7 @@ _ESC = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
 def log_tail(log: str, n: int = TAIL) -> list[str]:
     """The last n lines of the command's own output in a job's raw log (from `dc: $` to the
     next step); the whole log's tail when the job failed before the command."""
-    lines = [_ESC.sub("", _STAMP.sub("", s)) for s in log.splitlines()]
+    lines = [_ESC.sub("", _STAMP.sub("", s)).replace("\x00", "") for s in log.splitlines()]
     start = max((i for i, s in enumerate(lines) if s.startswith("dc: $ ")), default=None)
     if start is None:
         return lines[-n:]
@@ -128,6 +128,15 @@ def tails(repo: str, run_id: int) -> None:
     sys.stderr.flush()
 
 
+def _bash() -> str:
+    """Git Bash on Windows: a bare "bash" resolves to System32's WSL launcher first."""
+    if os.name == "nt":
+        git = os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Git", "bin", "bash.exe")
+        if os.path.isfile(git):
+            return git
+    return "bash"
+
+
 def ci() -> int:
     """Inside the Actions job: secrets into the environment (masked), Drive inputs, the
     command, Drive outputs."""
@@ -149,7 +158,7 @@ def ci() -> int:
         drive.get(p, rel, os.path.join(p.root, local.strip() or "."))
     cmd = os.environ["DC_COMMAND"]
     print(f"dc: $ {cmd}", flush=True)
-    rc = subprocess.call(["bash", "-c", cmd], cwd=p.root)
+    rc = subprocess.call([_bash(), "-c", cmd], cwd=p.root)
     for line in filter(None, os.environ.get("DC_OUT", "").splitlines()):
         local, _, rel = line.strip().partition(" ")
         src = os.path.join(p.root, local)
