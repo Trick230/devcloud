@@ -1,0 +1,152 @@
+"""The agent setup that makes Claude Code (and Codex) work, in the state repo under claude/:
+
+  global/claude/  ~/.claude: CLAUDE.md, agents/, tools/ (scripts), themes/, keybindings.json,
+                  statusline-command.sh
+  global/codex/   ~/.codex: AGENTS.md, rules/
+  os/<os>/        settings that hold this OS's paths: ~/.claude/settings.json,
+                  ~/.codex/config.toml, ~/.codex/hooks.json
+  memory/<proj>/  ~/.claude/projects/<slug of the project path>/memory/ (the slug differs per
+                  machine, the project name does not)
+  projects/<proj>/ the project's agent files that git does not track (AGENTS.md, CLAUDE.md,
+                  CLAUDE.local.md, AGENTS.override.md, .claude/, .agents/)
+
+Never credentials (.credentials.json, auth.json), sessions, history or caches. Each file is
+merged three-way against what this machine last synced (.dc/sync.json): a side that did not
+change takes the other; a file changed on both sides keeps the local copy and writes the
+stored one next to it as <name>.dc-remote. Deleted files are not propagated.
+"""
+from __future__ import annotations
+
+import os
+import re
+import subprocess
+from functools import lru_cache
+
+from . import core
+from .core import say
+
+GLOBAL = {   # state prefix: (home subdir, files, dirs (recursive), file patterns in dirs)
+    "global/claude": (".claude", ["CLAUDE.md", "keybindings.json", "statusline-command.sh"],
+                      ["agents", "tools", "themes"]),
+    "global/codex": (".codex", ["AGENTS.md"], ["rules"]),
+}
+PER_OS = {"claude": (".claude", ["settings.json"]), "codex": (".codex", ["config.toml", "hooks.json"])}
+PROJECT_FILES = ["AGENTS.md", "AGENTS.override.md", "CLAUDE.md", "CLAUDE.local.md"]
+PROJECT_DIRS = [".claude", ".agents"]
+SKIP = re.compile(r"(^|/)(__pycache__|node_modules)(/|$)|\.pyc$|(^|/)settings\.local\.json$"
+                  r"|\.dc-remote$|(^|/)\.credentials\.json$")
+
+
+def slug(path: str) -> str:
+    """Claude Code's folder name for a project path."""
+    return re.sub(r"[^A-Za-z0-9]", "-", os.path.normpath(path))
+
+
+def _walk(base: str, rel_dir: str) -> list[str]:
+    top = os.path.join(base, rel_dir)
+    res = []
+    for d, dirs, files in os.walk(top):
+        dirs[:] = [x for x in dirs if x not in ("__pycache__", "node_modules", ".git")]
+        for f in files:
+            res.append(os.path.relpath(os.path.join(d, f), base).replace(os.sep, "/"))
+    return res
+
+
+@lru_cache(maxsize=None)
+def _tracked(root: str) -> frozenset[str]:
+    r = subprocess.run(["git", "-C", root, "ls-files", "-z"], capture_output=True)
+    return frozenset(r.stdout.decode(errors="replace").split("\0")) if r.returncode == 0 else frozenset()
+
+
+def pairs(projects: list[core.Project]) -> dict[str, str]:
+    """{state path: local path} of everything synced from this machine."""
+    h, m = core.home(), {}
+    for prefix, (sub, files, dirs) in GLOBAL.items():
+        base = os.path.join(h, sub)
+        rels = [f for f in files] + [r for d in dirs for r in _walk(base, d)]
+        for r in rels:
+            m[f"claude/{prefix}/{r}"] = os.path.join(base, *r.split("/"))
+    for name, (sub, files) in PER_OS.items():
+        for f in files:
+            m[f"claude/os/{core.OS}/{name}/{f}"] = os.path.join(h, sub, f)
+    for p in projects:
+        mem = os.path.join(h, ".claude", "projects", slug(p.root), "memory")
+        for r in _walk(mem, "."):
+            m[f"claude/memory/{p.name}/{r.removeprefix('./')}"] = os.path.join(mem, *r.split("/"))
+        tracked = _tracked(p.root)
+        rels = PROJECT_FILES + [r for d in PROJECT_DIRS for r in _walk(p.root, d)]
+        for r in rels:
+            if r not in tracked:
+                m[f"claude/projects/{p.name}/{r}"] = os.path.join(p.root, *r.split("/"))
+    return {k: v for k, v in m.items() if not SKIP.search(k)}
+
+
+def _from_state(rel: str, projects: dict[str, core.Project]) -> str | None:
+    """Where a stored file goes on this machine (None: not here)."""
+    h = core.home()
+    parts = rel.split("/")
+    if parts[:2] == ["claude", "global"] and len(parts) > 3 and parts[2] in ("claude", "codex"):
+        return os.path.join(h, "." + parts[2], *parts[3:])
+    if parts[:2] == ["claude", "os"] and len(parts) > 4:
+        return os.path.join(h, "." + parts[3], *parts[4:]) if parts[2] == core.OS else None
+    if parts[:2] == ["claude", "memory"] and len(parts) > 3 and parts[2] in projects:
+        return os.path.join(h, ".claude", "projects", slug(projects[parts[2]].root), "memory", *parts[3:])
+    if parts[:2] == ["claude", "projects"] and len(parts) > 3 and parts[2] in projects:
+        p = projects[parts[2]]
+        return None if "/".join(parts[3:]) in _tracked(p.root) else os.path.join(p.root, *parts[3:])
+    return None
+
+
+def push(quiet: bool = False) -> None:
+    core.ensure_state()
+    projects = core.known_projects()
+    sync = core.load_sync()
+    changed, conflicts = [], []
+    for rel, local in sorted(pairs(projects).items()):
+        stored = os.path.join(core.STATE, *rel.split("/"))
+        lh, sh = core.file_sha(local), core.file_sha(stored)
+        what = core.decide(lh, sync.get(rel), sh)
+        if what == "take_local":
+            core.write(stored, core.read(local))
+            changed.append(rel)
+            sync[rel] = lh
+        elif what == "same" and lh:
+            sync[rel] = lh
+        elif what == "conflict":
+            conflicts.append(rel)
+    if changed:
+        core.commit_state(f"claude: {len(changed)} file(s)", changed)
+    core.save_sync(sync)
+    for c in conflicts:
+        say(f"conflict (changed here and elsewhere; dc claude pull): {c}")
+    if not quiet or changed:
+        say(f"claude push: {len(changed)} file(s) stored, {len(conflicts)} conflict(s)")
+
+
+def pull(quiet: bool = False) -> None:
+    core.ensure_state()
+    projects = {p.name: p for p in core.known_projects()}
+    sync = core.load_sync()
+    base = os.path.join(core.STATE, "claude")
+    written, conflicts = 0, 0
+    for rel in sorted("claude/" + r for r in _walk(base, ".") if not SKIP.search(r)):
+        rel = rel.replace("claude/./", "claude/")
+        local = _from_state(rel, projects)
+        if not local:
+            continue
+        stored = os.path.join(core.STATE, *rel.split("/"))
+        lh, sh = core.file_sha(local), core.file_sha(stored)
+        what = core.decide(lh, sync.get(rel), sh)
+        if what == "take_state":
+            core.write(local, core.read(stored))
+            sync[rel] = sh
+            written += 1
+        elif what == "same":
+            sync[rel] = sh
+        elif what == "conflict":
+            core.write(local + ".dc-remote", core.read(stored))
+            say(f"conflict: kept {local}, the stored copy is in {local}.dc-remote")
+            conflicts += 1
+    core.save_sync(sync)
+    if not quiet or written or conflicts:
+        say(f"claude pull: {written} file(s) updated, {conflicts} conflict(s)")

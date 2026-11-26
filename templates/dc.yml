@@ -1,0 +1,17 @@
+# devcloud (https://github.com/OWNER/devcloud): `dc run` dispatches this
+name: dc
+run-name: dc ${{ inputs.id }} ${{ inputs.commands }}
+on:
+  workflow_dispatch:
+    inputs:
+      id: {default: ""}
+      commands: {required: true}
+      os: {default: ubuntu-latest}
+      drive_in: {default: ""}
+      drive_out: {default: ""}
+      artifacts: {default: ""}
+jobs:
+  run:
+    uses: OWNER/devcloud/.github/workflows/run.yml@main
+    with: {commands: "${{ inputs.commands }}", os: "${{ inputs.os }}", drive_in: "${{ inputs.drive_in }}", drive_out: "${{ inputs.drive_out }}", artifacts: "${{ inputs.artifacts }}"}
+    secrets: {DC_ENV: "${{ secrets.DC_ENV }}"}

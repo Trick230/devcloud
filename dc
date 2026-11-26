@@ -1,0 +1,26 @@
+#!/bin/sh
+# devcloud launcher (Linux): fetches uv into .dc/<platform>/bin, then runs dc.py
+# on a uv-managed Python. Nothing is installed outside this folder. `./dc help` for commands.
+set -e
+ROOT=$(cd "$(dirname "$0")" && pwd)
+UV_VERSION=0.13.10
+case "$(uname -s)-$(uname -m)" in
+  Linux-x86_64) P=linux-x64 T=x86_64-unknown-linux-gnu
+    S=bf65ac1a0af10f92c522d91ac096c7c0a39657647b155577e7836c2cbbb4526c ;;
+  Linux-aarch64|Linux-arm64) P=linux-arm64 T=aarch64-unknown-linux-gnu
+    S=14590f644805a6234ffe071154340669e38137f38e60aa9629690119704107d2 ;;
+  *) echo "dc: unsupported platform $(uname -sm)" >&2; exit 1 ;;
+esac
+L="$ROOT/.dc/$P"
+if [ ! -x "$L/bin/uv" ]; then
+  mkdir -p "$L/bin" "$L/cache"
+  f="$L/cache/uv-$T.tar.gz"
+  u="https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$T.tar.gz"
+  echo "dc: downloading uv $UV_VERSION" >&2
+  if command -v curl >/dev/null; then curl -fsSL -o "$f" "$u"; else wget -qO "$f" "$u"; fi
+  echo "$S  $f" | sha256sum -c --quiet - || { rm -f "$f"; echo "dc: uv sha256 mismatch" >&2; exit 1; }
+  tar -xzf "$f" -C "$L/bin" --strip-components=1 "uv-$T/uv"
+fi
+export UV_CACHE_DIR="$L/cache/uv" UV_PYTHON_INSTALL_DIR="$L/python" \
+  UV_PYTHON_PREFERENCE=only-managed UV_PYTHON_INSTALL_BIN=0
+exec "$L/bin/uv" run -q --no-project --python 3.14 "$ROOT/dc.py" "$@"

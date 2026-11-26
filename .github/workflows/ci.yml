@@ -1,0 +1,24 @@
+name: ci
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, windows-11-arm]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v5
+      - name: tools and unit tests
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then DC=./dc.cmd; else DC=./dc; fi
+          $DC setup --ci
+          $DC check
+          .dc/*/bin/age --version
+          .dc/*/bin/rclone version | head -1
+          .dc/*/bin/gh --version | head -1
+          $DC test

@@ -1,0 +1,44 @@
+# Reusable job runner for `dc run` (called by each project's .github/workflows/dc.yml).
+# Every command of the JSON list is a job of its own; DC_ENV holds the secrets (dc secrets gh).
+name: run
+on:
+  workflow_call:
+    inputs:
+      commands: {type: string, required: true}
+      os: {type: string, default: ubuntu-latest}
+      drive_in: {type: string, default: ""}
+      drive_out: {type: string, default: ""}
+      artifacts: {type: string, default: ""}
+    secrets:
+      DC_ENV: {required: false}
+jobs:
+  run:
+    name: ${{ matrix.command }}
+    strategy:
+      fail-fast: false
+      matrix:
+        command: ${{ fromJSON(inputs.commands) }}
+    runs-on: ${{ inputs.os }}
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/checkout@v5
+        with:
+          repository: ${{ github.repository_owner }}/devcloud
+          path: .devcloud
+      - name: run
+        shell: bash
+        env:
+          DC_ENV: ${{ secrets.DC_ENV }}
+          DC_COMMAND: ${{ matrix.command }}
+          DC_IN: ${{ inputs.drive_in }}
+          DC_OUT: ${{ inputs.drive_out }}
+        run: |
+          echo ".devcloud/" >> .git/info/exclude
+          if [ "$RUNNER_OS" = Windows ]; then ./.devcloud/dc.cmd ci; else ./.devcloud/dc ci; fi
+      - if: always() && inputs.artifacts != ''
+        uses: actions/upload-artifact@v5
+        with:
+          name: dc-${{ strategy.job-index }}
+          path: ${{ inputs.artifacts }}
+          if-no-files-found: warn
