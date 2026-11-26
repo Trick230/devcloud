@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from devcloud import claude, core, drive, secrets  # noqa: E402
+from devcloud import claude, core, drive, run, secrets  # noqa: E402
 
 
 class Merge(unittest.TestCase):
@@ -79,6 +79,17 @@ class Write(unittest.TestCase):
             self.assertEqual(os.listdir(d), ["hook.sh"])
             if os.name != "nt":
                 self.assertEqual(os.stat(p).st_mode & 0o777, 0o755)
+
+
+class RunLog(unittest.TestCase):
+    def test_tail(self):
+        log = ("﻿2026-01-01T00:00:00.1Z ##[group]Run x\n"
+               "2026-01-01T00:00:00.2Z dc: $ make\n"
+               + "".join(f"2026-01-01T00:00:01.0Z \x1b[32mline {i}\x1b[0m\n" for i in range(20))
+               + "2026-01-01T00:00:02.0Z ##[group]Run upload\n"
+               "2026-01-01T00:00:03.0Z Post job cleanup.\n")
+        self.assertEqual(run.log_tail(log, 3), ["line 17", "line 18", "line 19"])
+        self.assertEqual(run.log_tail("a\nb\nc", 2), ["b", "c"])   # failed before the command
 
 
 if __name__ == "__main__":

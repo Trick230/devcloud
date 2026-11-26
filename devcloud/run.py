@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shlex
 import subprocess
 import sys
@@ -21,6 +22,7 @@ from .core import Fail, say
 
 WORKFLOW = "dc.yml"
 TEMPLATE = os.path.join(core.ROOT, "templates", WORKFLOW)
+TAIL = 15
 
 
 def init(p: core.Project) -> None:
@@ -84,12 +86,46 @@ def dispatch(p: core.Project, commands: list[str], runner: str, inputs: list[str
         return 0
     rc = subprocess.call([core.tool("gh"), "run", "watch", str(run_id), "-R", p.repo, "--exit-status",
                           "--interval", "20"], env=core.gh_env(), stdout=subprocess.DEVNULL)
+    tails(p.repo, run_id)
     if artifacts:
         dst = os.path.join(p.root, "dc-out", tag)
         core.gh("run", "download", str(run_id), "-R", p.repo, "-D", dst, check=False)
         say(f"artifacts in {dst}")
     say(f"run {'succeeded' if rc == 0 else 'failed'}: {url}")
     return rc
+
+
+_STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")
+_ESC = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07")
+
+
+def log_tail(log: str, n: int = TAIL) -> list[str]:
+    """The last n lines of the command's own output in a job's raw log (from `dc: $` to the
+    next step); the whole log's tail when the job failed before the command."""
+    lines = [_ESC.sub("", _STAMP.sub("", s)) for s in log.splitlines()]
+    start = max((i for i, s in enumerate(lines) if s.startswith("dc: $ ")), default=None)
+    if start is None:
+        return lines[-n:]
+    body = []
+    for s in lines[start + 1:]:
+        if s.startswith("##[group]") or s.startswith("Post job cleanup"):
+            break
+        body.append(s)
+    return body[-n:]
+
+
+def tails(repo: str, run_id: int) -> None:
+    """Each job's conclusion and the tail of its output, so the log needs no browser."""
+    r = core.gh("api", f"repos/{repo}/actions/runs/{run_id}/jobs?per_page=100", check=False)
+    if r.returncode:
+        return
+    for job in json.loads(core.out(r)).get("jobs", []):
+        log = core.gh("api", "--allow-escape-sequences", f"repos/{repo}/actions/jobs/{job['id']}/logs",
+                     check=False)
+        print(f"--- {job['name']}: {job.get('conclusion')}", file=sys.stderr)
+        for s in log_tail(core.out(log)) if log.returncode == 0 else ["(log not available)"]:
+            print(f"  {s}", file=sys.stderr)
+    sys.stderr.flush()
 
 
 def ci() -> int:
