@@ -7,7 +7,7 @@ Linux, cloud VMs, Claude Code web sessions, GitHub Actions runners):
 - **Drive**: copyrighted or big files in `<Google Drive>/Projects/<project>/`, checked by sha256, never in git
 - **Claude setup**: `~/.claude` and `~/.codex` config, per-project memory and the projects' local agent files
 - **CPU jobs**: `dc run -- CMD` runs on GitHub Actions in the project's repo (up to 6 h per job,
-  parallel with `--each`); `dc brief` writes the same job as a task for a Claude Code web session
+  parallel with `--each`; a Claude Code web session pushes its `claude/*` branch first); `dc brief` writes the same job as a task for a Claude Code web session
 - **GPU jobs**: `dc gpu JOB.json --in FILE --out DIR` runs a project's script on a free cloud GPU:
   Modal, then Kaggle, then Colab (manual steps); the spec and the script's contract are in
   `devcloud/gpu.py`, the modal and kaggle CLIs go into `.dc/`
@@ -36,6 +36,8 @@ Setup script:
 #!/bin/sh
 git clone -q https://github.com/<owner>/devcloud ~/devcloud 2>/dev/null || git -C ~/devcloud pull -q
 ~/devcloud/dc setup --web
+# optional, one per project with a heavy setup (kept in the environment's cached image):
+#   ~/devcloud/dc setup --web --prep <owner>/<repo>="<command>"
 ```
 
 The script cannot read the environment's variables (only the session gets them), and the sandbox
@@ -44,8 +46,10 @@ tools and points the SessionStart/Stop/SessionEnd hooks at `web-boot.sh`, which 
 runs `dc setup` and `dc claude pull` (the stored settings and `dc-hook.sh` then take over, and
 `dc secrets pull` brings the project's `.env`). `dc-hook.sh` then puts a short status (`dc check`,
 `.env`) into the session's context, and runs the project's `.claude/web-setup.sh`, if it has one, in
-the background (log and exit code in `$TMPDIR/dc-web-setup.log{,.done}`): the setup script cannot
-do project setup, since it runs before the clone.
+the background (log and exit code in `$TMPDIR/dc-web-setup-<project>.log{,.done}`): the setup
+script cannot do project setup, since it runs before the clone. What it can do is `--prep`: clone a
+public repo into `~/dc-prep/<repo>` and run a command there (downloads, toolchains), which the
+cached image keeps; the project's `web-setup.sh` gets that folder in `$DC_PREP` and reuses it.
 
 The session's GitHub access is bound to the repositories it was started with (other repos get
 HTTP 403 from its proxy): start it with the project and `<owner>/devcloud-state` both selected.

@@ -2,8 +2,12 @@
 
   dc setup                  tools (age, gh, rclone) into .dc/, GitHub sign-in, the state repo,
                             the age key (the first machine creates it)
-  dc setup --web            Claude Code web setup script: tools + hooks (web-boot.sh) that finish
-                            the setup at SessionStart, where the environment variables exist
+  dc setup --web [--prep OWNER/REPO=CMD]...
+                            Claude Code web setup script: tools + hooks (web-boot.sh) that finish
+                            the setup at SessionStart, where the environment variables exist;
+                            --prep clones a public repo to ~/dc-prep/REPO and runs CMD there, so
+                            the environment's cached image keeps what it downloads (the session's
+                            .claude/web-setup.sh finds it in $DC_PREP)
   dc check                  what is set up here
   dc test                   unit tests
   dc key                    prints the age key (to copy to another machine or a cloud
@@ -39,6 +43,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -64,10 +69,25 @@ def web_hooks() -> None:
     say(f"web hooks in {p}")
 
 
-def setup(ci: bool, web: bool = False) -> int:
+def prep(specs: list[str]) -> None:
+    """Each OWNER/REPO=CMD: clone (or update) the public repo into ~/dc-prep/REPO and run CMD in
+    it. A failure is reported, not fatal: the session's own setup still runs."""
+    for spec in specs:
+        repo, _, cmd = spec.partition("=")
+        d = os.path.join(os.path.expanduser("~"), "dc-prep", repo.rsplit("/", 1)[-1])
+        if os.path.isdir(os.path.join(d, ".git")):
+            r = core.run(["git", "-C", d, "pull", "-q", "--ff-only"], check=False)
+        else:
+            r = core.run(["git", "clone", "-q", f"https://github.com/{repo}", d], check=False)
+        rc = r.returncode or (subprocess.call(["sh", "-c", cmd], cwd=d, stdin=subprocess.DEVNULL) if cmd else 0)
+        say(f"prep {repo}: {'ok' if rc == 0 else f'failed ({rc})'}")
+
+
+def setup(ci: bool, web: bool = False, preps: list[str] | None = None) -> int:
     core.setup_tools()
     if web:
         web_hooks()
+        prep(preps or [])
         return 0
     if ci:
         return 0
@@ -122,7 +142,8 @@ def main(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     try:
         if cmd == "setup":
-            return setup("--ci" in rest, "--web" in rest)
+            preps = [rest[i + 1] for i, a in enumerate(rest[:-1]) if a == "--prep"]
+            return setup("--ci" in rest, "--web" in rest, preps)
         if cmd == "check":
             return check()
         if cmd == "key":

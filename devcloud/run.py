@@ -42,6 +42,11 @@ def _branch(p: core.Project) -> str:
         return core.out(core.run(["git", "-C", p.root, *a], check=False))
     branch = g("rev-parse", "--abbrev-ref", "HEAD")
     head, up = g("rev-parse", "HEAD"), g("rev-parse", "@{u}")
+    if (not up or head != up) and os.environ.get("CLAUDE_CODE_REMOTE") and branch.startswith("claude/"):
+        # a Claude Code web session's own branch: pushing it is how that session hands work over
+        say(f"pushing {branch} (the runner uses the pushed commit)")
+        core.run(["git", "-C", p.root, "push", "-q", "-u", "origin", branch])
+        up = g("rev-parse", "@{u}")
     if not up or head != up:
         raise Fail("the runner uses the pushed commit: push first")
     if g("status", "--porcelain", "--untracked-files=no"):
