@@ -59,8 +59,9 @@ def check() -> int:
     print(f"github   : token {ok(core.gh_token())}")
     st = os.path.isdir(os.path.join(core.STATE, ".git"))
     print(f"state    : {core.STATE if st else 'not cloned (dc setup)'}")
-    print(f"age key  : {ok(os.path.isfile(core.KEY))}")
-    if st and os.path.isfile(core.KEY):
+    print(f"age key  : {ok(os.path.isfile(core.KEY) or os.environ.get('DC_AGE_KEY'))}")
+    if st and (os.path.isfile(core.KEY) or os.environ.get("DC_AGE_KEY")):
+        core.ensure_key()
         g = secrets.parse(secrets.state_text(secrets.GLOBAL) or "")
         print(f"drive    : {ok(any(k.startswith(drive.PREFIX) for k in g))}")
     p = core.project()
