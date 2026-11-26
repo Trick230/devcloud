@@ -1,4 +1,5 @@
-# devcloud (https://github.com/OWNER/devcloud): `dc run` dispatches this
+# devcloud (https://github.com/OWNER/devcloud): `dc run` dispatches this; pinned to one
+# devcloud commit (`dc init` again moves the pin to the current one)
 name: dc
 run-name: dc ${{ inputs.id }} ${{ inputs.commands }}
 on:
@@ -12,6 +13,6 @@ on:
       artifacts: {default: ""}
 jobs:
   run:
-    uses: OWNER/devcloud/.github/workflows/run.yml@main
-    with: {commands: "${{ inputs.commands }}", os: "${{ inputs.os }}", drive_in: "${{ inputs.drive_in }}", drive_out: "${{ inputs.drive_out }}", artifacts: "${{ inputs.artifacts }}"}
+    uses: OWNER/devcloud/.github/workflows/run.yml@REF
+    with: {commands: "${{ inputs.commands }}", os: "${{ inputs.os }}", drive_in: "${{ inputs.drive_in }}", drive_out: "${{ inputs.drive_out }}", artifacts: "${{ inputs.artifacts }}", ref: REF}
     secrets: {DC_ENV: "${{ secrets.DC_ENV }}"}

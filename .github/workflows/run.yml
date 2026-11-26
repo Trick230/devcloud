@@ -9,6 +9,7 @@ on:
       drive_in: {type: string, default: ""}
       drive_out: {type: string, default: ""}
       artifacts: {type: string, default: ""}
+      ref: {type: string, default: main}   # the devcloud commit the caller pinned
     secrets:
       DC_ENV: {required: false}
 jobs:
@@ -25,6 +26,7 @@ jobs:
       - uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/devcloud
+          ref: ${{ inputs.ref }}
           path: .devcloud
       - name: run
         shell: bash

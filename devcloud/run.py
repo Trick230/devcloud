@@ -25,7 +25,11 @@ TEMPLATE = os.path.join(core.ROOT, "templates", WORKFLOW)
 
 def init(p: core.Project) -> None:
     dst = os.path.join(p.root, ".github", "workflows", WORKFLOW)
-    data = core.read(TEMPLATE).replace(b"OWNER", core.owner().encode())
+    g = lambda *a: core.out(core.run(["git", "-C", core.ROOT, *a], check=False))
+    ref = g("rev-parse", "HEAD")
+    if not ref or not g("branch", "-r", "--contains", ref):
+        raise Fail("devcloud's own commit is not pushed: the workflow is pinned to it, push devcloud first")
+    data = core.read(TEMPLATE).replace(b"OWNER", core.owner().encode()).replace(b"REF", ref.encode())
     if core.file_sha(dst) == core.sha(data):
         say(f"{dst}: up to date")
         return
