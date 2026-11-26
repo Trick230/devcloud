@@ -19,10 +19,11 @@ on:
       drive_in: {type: string, default: ""}
       drive_out: {type: string, default: ""}
       artifacts: {type: string, default: ""}
+      artifacts_in: {type: string, default: ""}   # artifacts of the calling run, into this folder
     secrets:
       DC_ENV: {required: false}
 jobs:
   run:
     uses: OWNER/devcloud/.github/workflows/run.yml@REF
-    with: {commands: "${{ inputs.commands }}", os: "${{ inputs.os }}", drive_in: "${{ inputs.drive_in }}", drive_out: "${{ inputs.drive_out }}", artifacts: "${{ inputs.artifacts }}", ref: REF}
+    with: {commands: "${{ inputs.commands }}", os: "${{ inputs.os }}", drive_in: "${{ inputs.drive_in }}", drive_out: "${{ inputs.drive_out }}", artifacts: "${{ inputs.artifacts }}", artifacts_in: "${{ inputs.artifacts_in }}", ref: REF}
     secrets: {DC_ENV: "${{ secrets.DC_ENV }}"}

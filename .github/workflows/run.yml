@@ -9,6 +9,7 @@ on:
       drive_in: {type: string, default: ""}
       drive_out: {type: string, default: ""}
       artifacts: {type: string, default: ""}
+      artifacts_in: {type: string, default: ""}   # this run's artifacts, downloaded into that folder first
       ref: {type: string, default: main}   # the devcloud commit the caller pinned
     secrets:
       DC_ENV: {required: false}
@@ -28,6 +29,11 @@ jobs:
           repository: ${{ github.repository_owner }}/devcloud
           ref: ${{ inputs.ref }}
           path: .devcloud
+      - if: inputs.artifacts_in != ''
+        uses: actions/download-artifact@v5
+        with:
+          path: ${{ inputs.artifacts_in }}
+          merge-multiple: true
       - name: run
         shell: bash
         env:
