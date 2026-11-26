@@ -272,6 +272,31 @@ configuration and memory), `projects.json`. Written by `dc`; do not edit by hand
 _LOCKED = False
 
 
+def _alive(pid_text: bytes) -> bool:
+    """Whether the process that wrote a lock still runs (unreadable or unknown: assume it does)."""
+    try:
+        pid = int(pid_text.strip())
+    except ValueError:
+        return True
+    if os.name == "nt":   # os.kill(pid, 0) would send CTRL_C here, not probe
+        import ctypes
+        k = ctypes.WinDLL("kernel32", use_last_error=True)
+        h = k.OpenProcess(0x1000, False, pid)   # PROCESS_QUERY_LIMITED_INFORMATION
+        if not h:
+            return ctypes.get_last_error() == 5   # access denied: it exists
+        code = ctypes.c_ulong()
+        ok = k.GetExitCodeProcess(h, ctypes.byref(code))
+        k.CloseHandle(h)
+        return not ok or code.value == 259        # STILL_ACTIVE
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
 def lock_state(wait: float = 180, stale: float = 600) -> None:
     """One dc process at a time on the state repo, held until exit: two at once (a hook's
     `dc report push` and the Stop hook's `dc claude push`) run `git pull --rebase` together and
@@ -292,7 +317,7 @@ def lock_state(wait: float = 180, stale: float = 600) -> None:
             break
         except FileExistsError:
             try:
-                if time.time() - os.path.getmtime(lock) > stale:   # a killed dc left it
+                if time.time() - os.path.getmtime(lock) > stale or not _alive(read(lock)):   # a killed dc left it
                     os.remove(lock)
                     continue
             except OSError:

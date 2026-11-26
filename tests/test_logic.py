@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from devcloud import account, claude, core, drive, run, secrets  # noqa: E402
+from devcloud import account, claude, core, drive, run, secrets, session  # noqa: E402
 
 
 class Merge(unittest.TestCase):
@@ -129,6 +129,56 @@ class Account(unittest.TestCase):
                         os.environ.pop(k, None)
                     else:
                         os.environ[k] = v
+
+
+class Session(unittest.TestCase):
+    def test_other_active(self):
+        c = {"session": "a", "where": "web", "host": "h", "time": 1000}
+        self.assertIsNone(session.other_active(None, "b", 1000))
+        self.assertIsNone(session.other_active(c, "a", 1100))              # our own claim
+        self.assertIn("web on h", session.other_active(c, "b", 1000 + 600))
+        self.assertIsNone(session.other_active(c, "b", 1000 + session.ACTIVE))   # expired
+        self.assertIsNone(session.other_active(c, "b", 1100, previous="a"))      # it handed off to us
+
+    def test_alive(self):
+        import subprocess
+        self.assertTrue(core._alive(str(os.getpid()).encode()))
+        p = subprocess.Popen([sys.executable, "-c", "0"])
+        p.wait()
+        self.assertFalse(core._alive(str(p.pid).encode()))
+        self.assertTrue(core._alive(b"junk"))
+
+    def test_branches(self):
+        import subprocess
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            sh = lambda *a, cwd=d: subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *a],
+                                                  cwd=cwd, check=True, capture_output=True)
+            sh("init", "-q", "--bare", "-b", "master", "o.git")
+            sh("clone", "-q", "o.git", "web")
+            w = os.path.join(d, "web")
+            commit = lambda cwd, f: (__import__("pathlib").Path(cwd, f).write_text(f), sh("add", f, cwd=cwd),
+                                     sh("commit", "-q", "-m", f, cwd=cwd))
+            commit(w, "base")
+            sh("push", "-q", "origin", "HEAD:master", cwd=w)
+            sh("clone", "-q", "o.git", "pc")
+            pc = os.path.join(d, "pc")
+            commit(w, "web1")
+            sh("push", "-q", "origin", "HEAD:claude/a", cwd=w)
+            msgs = session.branches(pc)
+            self.assertEqual(len(msgs), 1)
+            self.assertIn("fast-forwarded to origin/claude/a", msgs[0])
+            self.assertTrue(os.path.exists(os.path.join(pc, "web1")))
+            self.assertEqual(session.branches(pc), [])                      # nothing new
+            commit(pc, "pc1")
+            commit(w, "web2")
+            sh("push", "-q", "origin", "HEAD:claude/a", cwd=w)
+            msgs = session.branches(pc)
+            self.assertEqual(len(msgs), 1)
+            self.assertIn("diverged", msgs[0])
+            self.assertFalse(os.path.exists(os.path.join(pc, "web2")))
+            sh("cherry-pick", "origin/claude/a", cwd=pc)                # integrated by hand
+            self.assertEqual(session.branches(pc), [])
 
 
 if __name__ == "__main__":

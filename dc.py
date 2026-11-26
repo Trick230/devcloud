@@ -30,6 +30,8 @@
   dc web-env                what to paste into claude.ai for a web environment (per account)
   dc report push FILE       a web session's boot report into the state repo (dc-hook.sh)
   dc report [show]          the project's last web boot report, read on another machine
+  dc session start|claim|beat|end SID   hooks: web branches into the PC's branch, a warning when another
+                            session is active on the project (dc-hook.sh)
 
   dc init                   writes the project's .github/workflows/dc.yml
   dc run [--os RUNNER] [--in REMOTE[:LOCAL]] [--out LOCAL[:REMOTE]] [--artifact PATH]
@@ -52,7 +54,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from devcloud import account, claude, core, drive, gpu, run, secrets, web  # noqa: E402
+from devcloud import account, claude, core, drive, gpu, run, secrets, session, web  # noqa: E402
 from devcloud.core import Fail, say  # noqa: E402
 
 
@@ -234,6 +236,17 @@ def main(argv: list[str]) -> int:
             ap.add_argument("--quiet", action="store_true")
             a = ap.parse_args(rest)
             (claude.pull if a.action == "pull" else claude.push)(a.quiet)
+            return 0
+        if cmd == "session":
+            ap.add_argument("action", choices=["start", "claim", "beat", "end"])
+            ap.add_argument("sid")
+            ap.add_argument("--source", default="startup")
+            a = ap.parse_args(rest)
+            if a.action == "start":
+                for m in session.start(a.sid, a.source):
+                    print(m)
+            else:
+                {"claim": session.claim, "beat": session.beat, "end": session.end}[a.action](a.sid)
             return 0
         if cmd == "report":
             ap.add_argument("action", nargs="?", default="show", choices=["show", "push"])
