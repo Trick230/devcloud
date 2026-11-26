@@ -91,8 +91,10 @@ def ci() -> int:
     """Inside the Actions job: secrets into the environment (masked), Drive inputs, the
     command, Drive outputs."""
     env = secrets.parse(os.environ.get("DC_ENV", ""))
-    for v in env.values():
-        if len(v) >= 4:
+    # rclone's TYPE and SCOPE ("drive") are settings, not secrets: masked, every "drive" in the
+    # log would turn into ***
+    for k, v in env.items():
+        if len(v) >= 4 and not k.endswith(("_TYPE", "_SCOPE")):
             for part in v.splitlines():
                 print(f"::add-mask::{part}", flush=True)
     os.environ.update(env)
