@@ -59,7 +59,9 @@ dc secrets push            # in a project: its .env -> state repo (lines after "
 dc secrets pull
 dc secrets gh              # global + project secrets -> the repo's Actions secret DC_ENV
 
-dc drive login             # once, in a browser
+dc drive login             # once, in a browser (rclone's shared client, retired by Google in 2026)
+dc drive login ID SECRET   # same with your own OAuth client: Google Cloud > APIs > Drive API on,
+                           # Credentials > OAuth client ID > Desktop app
 dc drive push media/       # project files -> Drive, recorded in the manifest
 dc drive pull              # everything in the manifest, verified
 dc drive ls refs  /  dc drive get refs/a.flac in/  /  dc drive put out/ synced

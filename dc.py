@@ -12,7 +12,7 @@
   dc secrets gh             the global + project secrets as the Actions secret DC_ENV
   dc secrets set [--global] KEY=VALUE...   /  dc secrets unset --global KEY...
 
-  dc drive login            Google sign-in (browser); stored in the global secrets
+  dc drive login [ID SECRET] Google sign-in (browser), own OAuth client optional; global secrets
   dc drive push|pull [PATH...]   project files <-> <Drive>/Projects/<project>/, checked by sha256
   dc drive forget [--delete] PATH...
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
@@ -139,7 +139,7 @@ def main(argv: list[str]) -> int:
                 core.ensure_state()
                 core.ensure_key()
             if a.action == "login":
-                drive.login()
+                drive.login(a.items)
                 return 0
             p = core.need_project()
             if a.action == "push":

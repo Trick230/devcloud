@@ -60,16 +60,24 @@ def rclone(*args: str, capture: bool = False, check: bool = True) -> str:
     return (r.stdout or b"").decode(errors="replace")
 
 
-def login() -> None:
-    """Google sign-in in the browser; the token goes into the global secrets."""
-    r = subprocess.run([core.tool("rclone"), "authorize", "drive"], capture_output=True,
+def login(client: list[str] | None = None) -> None:
+    """Google sign-in in the browser; the token goes into the global secrets. With CLIENT_ID
+    CLIENT_SECRET (an OAuth client of type "Desktop app" in Google Cloud), rclone uses that client
+    instead of its shared one, which Google is retiring."""
+    if client and len(client) != 2:
+        raise Fail("dc drive login [CLIENT_ID CLIENT_SECRET]")
+    r = subprocess.run([core.tool("rclone"), "authorize", "drive", *(client or [])], capture_output=True,
                        env=dict(os.environ, RCLONE_CONFIG=os.path.join(core.DC, "rclone-unused.conf")))
     text = r.stdout.decode(errors="replace")
     m = re.search(r"--->\s*(\{.*?\})\s*<---", text, re.S)
     if r.returncode != 0 or not m:
         raise Fail("rclone authorize did not return a token")
     token = json.dumps(json.loads(m.group(1)), separators=(",", ":"))
-    secrets.set_global({PREFIX + "TYPE": "drive", PREFIX + "SCOPE": "drive", PREFIX + "TOKEN": token})
+    keys = {PREFIX + "TYPE": "drive", PREFIX + "SCOPE": "drive", PREFIX + "TOKEN": token}
+    # the token belongs to the client that issued it: a login without one drops the old client
+    keys.update({PREFIX + "CLIENT_ID": client[0] if client else None,
+                 PREFIX + "CLIENT_SECRET": client[1] if client else None})
+    secrets.set_global(keys)
     say("Drive remote stored in the global secrets")
 
 
