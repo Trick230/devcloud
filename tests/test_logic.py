@@ -60,5 +60,26 @@ class Claude(unittest.TestCase):
         self.assertFalse(claude.SKIP.search("claude/projects/P/.claude/settings.json"))
 
 
+class Write(unittest.TestCase):
+    def test_reader_keeps_old_content(self):
+        # a running hook script is read while it runs: a pull that rewrites it must not change
+        # what the open handle reads (in-place truncation broke dc-hook.sh at SessionStart)
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            p = os.path.join(d, "hook.sh")
+            core.write(p, b"old " * 4096)
+            if os.name != "nt":
+                os.chmod(p, 0o755)
+            with open(p, "rb") as f:
+                f.read(10)
+                core.write(p, b"new")
+                if os.name != "nt":   # Windows refuses the swap while the file is open
+                    self.assertEqual(f.read(6), b"old ol")
+            self.assertEqual(core.read(p), b"new")
+            self.assertEqual(os.listdir(d), ["hook.sh"])
+            if os.name != "nt":
+                self.assertEqual(os.stat(p).st_mode & 0o777, 0o755)
+
+
 if __name__ == "__main__":
     unittest.main()

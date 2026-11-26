@@ -103,11 +103,23 @@ def read(path: str) -> bytes:
 
 
 def write(path: str, data: bytes, private: bool = False) -> None:
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "wb") as f:
+    """Writes a new file next to the old one and swaps it in: a reader that has the old one
+    open (a running hook script, which sh reads as it runs) keeps reading the old content."""
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+    tmp = os.path.join(d, f".{os.path.basename(path)}.dc-tmp")
+    with open(tmp, "wb") as f:
         f.write(data)
-    if private and not WIN:
-        os.chmod(path, 0o600)
+    if not WIN:
+        mode = 0o600 if private else (os.stat(path).st_mode & 0o7777 if os.path.exists(path) else None)
+        if mode is not None:
+            os.chmod(tmp, mode)
+    try:
+        os.replace(tmp, path)
+    except OSError:   # Windows refuses to replace a file another process holds open
+        os.remove(tmp)
+        with open(path, "wb") as f:
+            f.write(data)
 
 
 # ---------------------------------------------------------------- tools
