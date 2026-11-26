@@ -40,7 +40,7 @@ BIN = os.path.join(LOCAL, "bin")
 STATE = os.path.join(DC, "state")
 KEY = os.path.join(DC, "age-key.txt")
 TOKEN = os.path.join(DC, "gh-token")
-SYNC = os.path.join(DC, "sync.json")
+SYNC = os.environ.get("DC_SYNC") or os.path.join(DC, "sync.json")   # DC_SYNC: tests
 CI = bool(os.environ.get("GITHUB_ACTIONS"))
 # a Claude Code web sandbox or a CI runner: its paths are not worth remembering
 EPHEMERAL = CI or bool(os.environ.get("CLAUDE_CODE_REMOTE"))
