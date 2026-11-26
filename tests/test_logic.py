@@ -74,7 +74,7 @@ class Write(unittest.TestCase):
                 f.read(10)
                 core.write(p, b"new")
                 if os.name != "nt":   # Windows refuses the swap while the file is open
-                    self.assertEqual(f.read(6), b"old ol")
+                    self.assertEqual(f.read(6), b"d old ")
             self.assertEqual(core.read(p), b"new")
             self.assertEqual(os.listdir(d), ["hook.sh"])
             if os.name != "nt":
