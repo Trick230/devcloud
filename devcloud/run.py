@@ -127,7 +127,7 @@ def brief(p: core.Project, command: str, inputs: list[str], outputs: list[str]) 
         f"Run a job for {p.repo} at commit {head}.",
         "1. Clone it, check out that commit, and clone devcloud next to it: "
         f"git clone https://github.com/{core.owner()}/devcloud ~/devcloud && ~/devcloud/dc setup "
-        "(DC_AGE_KEY and GH_TOKEN are in this environment's variables).",
+        "(DC_AGE_KEY and DC_GH_TOKEN are in this environment's variables).",
         "2. In the project folder: ~/devcloud/dc secrets pull",
     ]
     for line in inputs:

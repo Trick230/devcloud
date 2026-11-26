@@ -181,7 +181,8 @@ def out(r: subprocess.CompletedProcess) -> str:
 # ---------------------------------------------------------------- GitHub
 
 def gh_token() -> str | None:
-    t = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    # DC_GH_TOKEN first: a web sandbox may reserve or clear the GitHub names
+    t = os.environ.get("DC_GH_TOKEN") or os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
     if t:
         return t
     try:
@@ -262,7 +263,7 @@ def ensure_state() -> None:
         return
     if not gh_token():
         # without a token "repo view" fails for an existing private repo too
-        raise Fail("no GitHub token: set GH_TOKEN or run dc setup")
+        raise Fail("no GitHub token: set DC_GH_TOKEN or run dc setup")
     repo = state_repo()
     if gh("repo", "view", repo, "--json", "name", check=False).returncode != 0:
         say(f"creating the private repo {repo}")

@@ -28,7 +28,8 @@ the key once: `dc key` prints it on a machine that has it; put it in `DC_AGE_KEY
 
 ### Claude Code web environment
 
-Environment variables: `DC_AGE_KEY` (from `dc key`) and `GH_TOKEN` (a token with `repo` scope).
+Environment variables: `DC_AGE_KEY` (from `dc key`) and `DC_GH_TOKEN` (a token with `repo` scope; `GH_TOKEN` also works
+where the sandbox leaves it alone).
 Setup script:
 
 ```sh
