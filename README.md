@@ -42,7 +42,10 @@ The script cannot read the environment's variables (only the session gets them),
 puts placeholders in `GH_TOKEN`/`GITHUB_TOKEN`: hence `DC_GH_TOKEN`. `dc setup --web` installs the
 tools and points the SessionStart/Stop/SessionEnd hooks at `web-boot.sh`, which at SessionStart
 runs `dc setup` and `dc claude pull` (the stored settings and `dc-hook.sh` then take over, and
-`dc secrets pull` brings the project's `.env`).
+`dc secrets pull` brings the project's `.env`). `dc-hook.sh` then puts a short status (`dc check`,
+`.env`) into the session's context, and runs the project's `.claude/web-setup.sh`, if it has one, in
+the background (log and exit code in `$TMPDIR/dc-web-setup.log{,.done}`): the setup script cannot
+do project setup, since it runs before the clone.
 
 The session's GitHub access is bound to the repositories it was started with (other repos get
 HTTP 403 from its proxy): start it with the project and `<owner>/devcloud-state` both selected.
