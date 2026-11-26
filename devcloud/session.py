@@ -99,13 +99,18 @@ def branches(root: str) -> list[str]:
 
 
 def start(sid: str, source: str = "startup") -> list[str]:
-    """source: the SessionStart source; a resume, /clear or compaction does not touch git."""
+    """source: the SessionStart source; a resume, /clear or compaction does not touch git.
+    DC_STATE_PULLED=1: the caller has just pulled the state repo (dc-hook.sh runs dc claude pull
+    first), so reading it needs no second pull (~1 s). An environment variable, not a flag, so a
+    newer hook still works with an older dc."""
+    pulled = os.environ.get("DC_STATE_PULLED") == "1"
     p = core.project()
     if not p:
         return []
     msgs = [] if os.environ.get("CLAUDE_CODE_REMOTE") or source != "startup" else branches(p.root)
     try:
-        core.ensure_state()
+        if not (pulled and os.path.isdir(os.path.join(core.STATE, ".git"))):
+            core.ensure_state()
     except core.Fail as e:   # the branch news above must still reach the agent
         return msgs + [f"dc session: no session check ({e})"]
     w = other_active(_load(os.path.join(core.STATE, _rel(p))), sid, time.time(), handed_off(p.root))
