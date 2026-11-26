@@ -269,7 +269,43 @@ configuration and memory), `projects.json`. Written by `dc`; do not edit by hand
 """
 
 
+_LOCKED = False
+
+
+def lock_state(wait: float = 180, stale: float = 600) -> None:
+    """One dc process at a time on the state repo, held until exit: two at once (a hook's
+    `dc report push` and the Stop hook's `dc claude push`) run `git pull --rebase` together and
+    break it on the shared FETCH_HEAD ("Cannot rebase onto multiple branches")."""
+    global _LOCKED
+    if _LOCKED:
+        return
+    import atexit
+    import time
+    lock = os.path.join(DC, "state.lock")
+    os.makedirs(DC, exist_ok=True)
+    end = time.time() + wait
+    while True:
+        try:
+            fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            os.write(fd, str(os.getpid()).encode())
+            os.close(fd)
+            break
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(lock) > stale:   # a killed dc left it
+                    os.remove(lock)
+                    continue
+            except OSError:
+                continue
+            if time.time() > end:
+                raise Fail(f"the state repo is busy ({lock}; delete it if no dc is running)")
+            time.sleep(0.5)
+    _LOCKED = True
+    atexit.register(lambda: os.path.exists(lock) and os.remove(lock))
+
+
 def ensure_state() -> None:
+    lock_state()
     if os.path.isdir(os.path.join(STATE, ".git")):
         git("pull", "-q", "--rebase", cwd=STATE)
         return
