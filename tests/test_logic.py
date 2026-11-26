@@ -49,6 +49,17 @@ class Drive(unittest.TestCase):
             with self.assertRaises(core.Fail):
                 drive.clean(bad)
 
+    def test_authorize_token(self):
+        import base64
+        import json
+        tok = {"access_token": "a", "token_type": "Bearer", "refresh_token": "r"}
+        plain = f"Paste the following --->\n{json.dumps(tok)}\n<---End paste"
+        self.assertEqual(drive._authorize_token(plain), tok)
+        blob = base64.urlsafe_b64encode(json.dumps({"token": json.dumps(tok)}).encode()).decode().rstrip("=")
+        self.assertEqual(drive._authorize_token(f"--->\n{blob}\n<---End paste"), tok)
+        self.assertIsNone(drive._authorize_token("--->\nnot-a-token\n<---"))
+        self.assertIsNone(drive._authorize_token("nothing"))
+
     def test_remote(self):
         p = core.Project("/r", "Proj", "o/Proj")
         self.assertEqual(drive.remote(p), "DCDRIVE:Projects/Proj")

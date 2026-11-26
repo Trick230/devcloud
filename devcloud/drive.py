@@ -64,6 +64,30 @@ def rclone(*args: str, capture: bool = False, check: bool = True) -> str:
 SCOPE = "drive.file"  # only the files dc itself created: a leaked token cannot reach the rest of the Drive
 
 
+def _authorize_token(text: str) -> dict | None:
+    """The OAuth token from `rclone authorize` output: a JSON token, or (when it was given a
+    config blob) a base64 config map whose "token" entry holds it."""
+    m = re.search(r"--->\s*(\S+?|\{.*?\})\s*<---", text, re.S)
+    if not m:
+        return None
+    raw = m.group(1).strip()
+    try:
+        if raw.startswith("{"):
+            tok = json.loads(raw)
+        else:
+            pad = raw + "=" * (-len(raw) % 4)
+            try:
+                d = json.loads(base64.urlsafe_b64decode(pad))
+            except ValueError:
+                d = json.loads(base64.b64decode(pad))
+            tok = d.get("token", d) if isinstance(d, dict) else None
+            if isinstance(tok, str):
+                tok = json.loads(tok)
+    except ValueError:
+        return None
+    return tok if isinstance(tok, dict) and tok.get("access_token") else None
+
+
 def login(client: list[str] | None = None) -> None:
     """Google sign-in in the browser; the token goes into the global secrets. With CLIENT_ID
     CLIENT_SECRET (an OAuth client of type "Desktop app" in Google Cloud), rclone uses that client
@@ -80,11 +104,11 @@ def login(client: list[str] | None = None) -> None:
     b64 = base64.urlsafe_b64encode(json.dumps(blob).encode()).decode().rstrip("=")
     r = subprocess.run([core.tool("rclone"), "authorize", "drive", b64], capture_output=True,
                        env=dict(os.environ, RCLONE_CONFIG=os.path.join(core.DC, "rclone-unused.conf")))
-    text = r.stdout.decode(errors="replace")
-    m = re.search(r"--->\s*(\{.*?\})\s*<---", text, re.S)
-    if r.returncode != 0 or not m:
-        raise Fail("rclone authorize did not return a token")
-    token = json.dumps(json.loads(m.group(1)), separators=(",", ":"))
+    tok = _authorize_token(r.stdout.decode(errors="replace")) if r.returncode == 0 else None
+    if not tok:
+        err = r.stderr.decode(errors="replace").strip().splitlines()[-3:]
+        raise Fail("rclone authorize did not return a token" + (": " + " / ".join(err) if err else ""))
+    token = json.dumps(tok, separators=(",", ":"))
     keys = {PREFIX + "TYPE": "drive", PREFIX + "SCOPE": SCOPE, PREFIX + "TOKEN": token}
     # the token belongs to the client that issued it
     keys.update({PREFIX + "CLIENT_ID": client[0] if client else None,
