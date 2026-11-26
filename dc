@@ -1,5 +1,5 @@
 #!/bin/sh
-# devcloud launcher (Linux): fetches uv into .dc/<platform>/bin, then runs dc.py
+# devcloud launcher (Linux; Git Bash on Windows): fetches uv into .dc/<platform>/bin, then runs dc.py
 # on a uv-managed Python. Nothing is installed outside this folder. `./dc help` for commands.
 set -e
 ROOT=$(cd "$(dirname "$0")" && pwd)
@@ -9,6 +9,16 @@ case "$(uname -s)-$(uname -m)" in
     S=bf65ac1a0af10f92c522d91ac096c7c0a39657647b155577e7836c2cbbb4526c ;;
   Linux-aarch64|Linux-arm64) P=linux-arm64 T=aarch64-unknown-linux-gnu
     S=14590f644805a6234ffe071154340669e38137f38e60aa9629690119704107d2 ;;
+  MINGW*|MSYS*|CYGWIN*)
+    # Git Bash and friends: same .dc/windows-* tree as dc.cmd, which fetches uv
+    P=windows-x64
+    case "$PROCESSOR_ARCHITECTURE$PROCESSOR_ARCHITEW6432" in *ARM64*) P=windows-arm64 ;; esac
+    L="$ROOT/.dc/$P"
+    [ -x "$L/bin/uv.exe" ] || "$ROOT/dc.cmd" help >/dev/null
+    W=$(cygpath -w "$L")
+    export UV_CACHE_DIR="$W\cache\uv" UV_PYTHON_INSTALL_DIR="$W\python" \
+      UV_PYTHON_PREFERENCE=only-managed UV_PYTHON_INSTALL_BIN=0
+    exec "$L/bin/uv.exe" run -q --no-project --python 3.14 "$(cygpath -w "$ROOT/dc.py")" "$@" ;;
   *) echo "dc: unsupported platform $(uname -sm)" >&2; exit 1 ;;
 esac
 L="$ROOT/.dc/$P"
