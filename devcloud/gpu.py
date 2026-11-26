@@ -31,7 +31,7 @@ from . import core, secrets
 from .core import Fail, say
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CLIS = {"modal": "modal==1.6.4", "kaggle": "kaggle==2.2.5"}
+CLIS = {"modal": ["modal==1.6.4"], "kaggle": ["kaggle==2.2.5", "--with", "six"]}  # kaggle 2.2.5 imports six without depending on it
 TOKENS = ("MODAL_", "KAGGLE_")
 
 
@@ -71,7 +71,7 @@ def cli(name: str) -> str | None:
     env = dict(os.environ, UV_TOOL_DIR=os.path.join(core.LOCAL, "tools"), UV_TOOL_BIN_DIR=core.BIN)
     env.pop("VIRTUAL_ENV", None)
     say(f"installing the {name} CLI")
-    r = subprocess.run([uv, "tool", "install", "-q", "--python", "3.14", CLIS[name]], env=env,
+    r = subprocess.run([uv, "tool", "install", "-q", "--python", "3.14", *CLIS[name]], env=env,
                        stdin=subprocess.DEVNULL, stdout=sys.stderr)
     return exe if r.returncode == 0 and os.path.isfile(exe) else shutil.which(name)
 
