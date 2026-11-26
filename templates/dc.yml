@@ -11,6 +11,16 @@ on:
       drive_in: {default: ""}
       drive_out: {default: ""}
       artifacts: {default: ""}
+  workflow_call:   # the project's own workflows reuse it: `uses: ./.github/workflows/dc.yml`
+    inputs:
+      id: {type: string, default: ""}
+      commands: {type: string, required: true}
+      os: {type: string, default: ubuntu-latest}
+      drive_in: {type: string, default: ""}
+      drive_out: {type: string, default: ""}
+      artifacts: {type: string, default: ""}
+    secrets:
+      DC_ENV: {required: false}
 jobs:
   run:
     uses: OWNER/devcloud/.github/workflows/run.yml@REF

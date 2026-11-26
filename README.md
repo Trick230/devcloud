@@ -67,7 +67,8 @@ dc drive ls refs  /  dc drive get refs/a.flac in/  /  dc drive put out/ synced
 dc claude push             # end of a session
 dc claude pull             # start of a session
 
-dc init                    # adds .github/workflows/dc.yml to the project (commit and push it)
+dc init                    # adds .github/workflows/dc.yml to the project (commit and push it);
+                           # its own CI can call it too: `uses: ./.github/workflows/dc.yml`
 dc run -- ./lls test all
 dc run --in refs:in --out out:results -- ./lls batch in out
 dc run --each "./lls test pal" "./lls test tempo"
