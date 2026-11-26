@@ -2,6 +2,8 @@
 
   dc setup                  tools (age, gh, rclone) into .dc/, GitHub sign-in, the state repo,
                             the age key (the first machine creates it)
+  dc setup --web            Claude Code web setup script: tools + hooks (web-boot.sh) that finish
+                            the setup at SessionStart, where the environment variables exist
   dc check                  what is set up here
   dc test                   unit tests
   dc key                    prints the age key (to copy to another machine or a cloud
@@ -33,6 +35,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 
@@ -42,8 +45,28 @@ from devcloud import claude, core, drive, gpu, run, secrets  # noqa: E402
 from devcloud.core import Fail, say  # noqa: E402
 
 
-def setup(ci: bool) -> int:
+def web_hooks() -> None:
+    """Points ~/.claude/settings.json's SessionStart/Stop/SessionEnd at web-boot.sh, keeping
+    everything else in it (a web sandbox's setup script: no token yet, see web-boot.sh)."""
+    p = os.path.join(core.home(), ".claude", "settings.json")
+    try:
+        s = json.loads(core.read(p))
+    except (OSError, ValueError):
+        s = {}
+    boot = os.path.join(core.ROOT, "web-boot.sh")
+    hooks = s.setdefault("hooks", {})
+    for event, arg in (("SessionStart", "start"), ("Stop", "stop"), ("SessionEnd", "end")):
+        keep = [g for g in hooks.get(event, []) if "web-boot.sh" not in json.dumps(g)]
+        hooks[event] = keep + [{"hooks": [{"type": "command", "command": f'sh "{boot}" {arg}'}]}]
+    core.write(p, (json.dumps(s, indent=2) + "\n").encode())
+    say(f"web hooks in {p}")
+
+
+def setup(ci: bool, web: bool = False) -> int:
     core.setup_tools()
+    if web:
+        web_hooks()
+        return 0
     if ci:
         return 0
     if not core.gh_token():
@@ -97,7 +120,7 @@ def main(argv: list[str]) -> int:
     cmd, rest = argv[0], argv[1:]
     try:
         if cmd == "setup":
-            return setup("--ci" in rest)
+            return setup("--ci" in rest, "--web" in rest)
         if cmd == "check":
             return check()
         if cmd == "key":

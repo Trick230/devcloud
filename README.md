@@ -35,12 +35,14 @@ Setup script:
 ```sh
 #!/bin/sh
 git clone -q https://github.com/<owner>/devcloud ~/devcloud 2>/dev/null || git -C ~/devcloud pull -q
-~/devcloud/dc setup
-~/devcloud/dc claude pull --quiet
+~/devcloud/dc setup --web
 ```
 
-The script runs before the repo is cloned, so the project's `.env` comes from the SessionStart
-hook (`dc secrets pull` in a sandbox without one).
+The script cannot read the environment's variables (only the session gets them), and the sandbox
+puts placeholders in `GH_TOKEN`/`GITHUB_TOKEN`: hence `DC_GH_TOKEN`. `dc setup --web` installs the
+tools and points the SessionStart/Stop/SessionEnd hooks at `web-boot.sh`, which at SessionStart
+runs `dc setup` and `dc claude pull` (the stored settings and `dc-hook.sh` then take over, and
+`dc secrets pull` brings the project's `.env`).
 
 Network allowlist: github.com, objects.githubusercontent.com,
 release-assets.githubusercontent.com, pypi.org, files.pythonhosted.org, download.pytorch.org,
