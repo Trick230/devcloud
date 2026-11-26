@@ -20,6 +20,8 @@
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
 
   dc claude pull|push [--quiet]   ~/.claude, ~/.codex, memory and the projects' agent files
+  dc report push FILE       a web session's boot report into the state repo (dc-hook.sh)
+  dc report [show]          the project's last web boot report, read on another machine
 
   dc init                   writes the project's .github/workflows/dc.yml
   dc run [--os RUNNER] [--in REMOTE[:LOCAL]] [--out LOCAL[:REMOTE]] [--artifact PATH]
@@ -187,6 +189,24 @@ def main(argv: list[str]) -> int:
             ap.add_argument("--quiet", action="store_true")
             a = ap.parse_args(rest)
             (claude.pull if a.action == "pull" else claude.push)(a.quiet)
+            return 0
+        if cmd == "report":
+            ap.add_argument("action", nargs="?", default="show", choices=["show", "push"])
+            ap.add_argument("file", nargs="?")
+            a = ap.parse_args(rest)
+            core.ensure_state()
+            rel = f"reports/{core.need_project().name}-web.txt"
+            dst = os.path.join(core.STATE, rel)
+            if a.action == "push":
+                if not a.file:
+                    raise Fail("dc report push FILE")
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                core.write(dst, core.read(a.file))
+                core.commit_state(f"report: {rel}", [rel])
+                return 0
+            if not os.path.isfile(dst):
+                raise Fail(f"no {rel} yet (a web session writes it at SessionStart)")
+            sys.stdout.write(core.read(dst).decode(errors="replace"))
             return 0
         if cmd == "init":
             run.init(core.need_project())
