@@ -24,6 +24,10 @@
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
 
   dc claude pull|push [--quiet]   ~/.claude, memory and the projects' agent files
+  dc account [save NAME | use NAME | next]
+                            Claude Code accounts on this machine: save the signed-in one, switch
+                            to another without the browser (settings, memory, sessions shared)
+  dc web-env                what to paste into claude.ai for a web environment (per account)
   dc report push FILE       a web session's boot report into the state repo (dc-hook.sh)
   dc report [show]          the project's last web boot report, read on another machine
 
@@ -48,7 +52,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from devcloud import claude, core, drive, gpu, run, secrets  # noqa: E402
+from devcloud import account, claude, core, drive, gpu, run, secrets, web  # noqa: E402
 from devcloud.core import Fail, say  # noqa: E402
 
 
@@ -146,6 +150,9 @@ def main(argv: list[str]) -> int:
             return setup("--ci" in rest, "--web" in rest, preps)
         if cmd == "check":
             return check()
+        if cmd == "web-env":
+            sys.stdout.write(web.env_text())
+            return 0
         if cmd == "key":
             sys.stdout.write(core.read(core.KEY).decode())
             return 0
@@ -157,6 +164,23 @@ def main(argv: list[str]) -> int:
             return 0 if unittest.TextTestRunner(verbosity=2).run(t).wasSuccessful() else 1
 
         ap = argparse.ArgumentParser(prog=f"dc {cmd}")
+        if cmd == "account":
+            ap.add_argument("action", nargs="?", default="list", choices=["list", "save", "use", "next"])
+            ap.add_argument("name", nargs="?")
+            a = ap.parse_args(rest)
+            if a.action in ("save", "use") and not a.name:
+                raise Fail(f"dc account {a.action} NAME")
+            if a.action == "save":
+                account.save(a.name)
+            elif a.action == "use":
+                account.use(a.name)
+            elif a.action == "next":
+                n = account.after(account.active_name())
+                if n:
+                    print(n)
+            else:
+                account.show()
+            return 0
         if cmd == "secrets":
             ap.add_argument("action", choices=["pull", "push", "gh", "set", "unset"])
             ap.add_argument("--global", dest="glob", action="store_true")

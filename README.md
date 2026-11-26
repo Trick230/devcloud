@@ -6,6 +6,12 @@ Linux, cloud VMs, Claude Code web sessions, GitHub Actions runners):
 - **secrets**: each project's `.env`, age-encrypted in a private state repo (`<owner>/devcloud-state`)
 - **Drive**: copyrighted or big files in `<Google Drive>/Projects/<project>/`, checked by sha256, never in git
 - **Claude setup**: `~/.claude` config, per-project memory and the projects' local agent files
+- **Claude accounts**: nothing but the token belongs to an account. `dc account save NAME` keeps the
+  signed-in one (in `.dc/accounts/`, this machine only: the refresh token rotates), `dc account use
+  NAME` switches without the browser (new sessions and `claude --resume`; open sessions keep theirs).
+  A StopFailure hook (`dc-hook.sh limit`) logs API errors to `~/.claude/dc-stopfailure.log` and, on a
+  rate limit, sends a desktop notification naming the next saved account. `dc web-env` prints the
+  web environment to create once per account (below)
 - **CPU jobs**: `dc run -- CMD` runs on GitHub Actions in the project's repo (up to 6 h per job,
   parallel with `--each`; a Claude Code web session pushes its `claude/*` branch first); `dc brief` writes the same job as a task for a Claude Code web session
 - **GPU jobs**: `dc gpu JOB.json --in FILE --out DIR` runs a project's script on a free cloud GPU:
@@ -27,6 +33,9 @@ the key once: `dc key` prints it on a machine that has it; put it in `DC_AGE_KEY
 `.dc/age-key.txt`) before `dc setup`.
 
 ### Claude Code web environment
+
+One per Claude account. `dc web-env` prints all of it with the real values (variables, setup
+script with the `--prep` lines of the state repo's `web/prep.txt`, allowlist), ready to paste.
 
 Environment variables: `DC_AGE_KEY` (from `dc key`) and `DC_GH_TOKEN` (a token with `repo` scope; `GH_TOKEN` also works
 where the sandbox leaves it alone).

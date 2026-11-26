@@ -4,7 +4,7 @@ import sys
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from devcloud import claude, core, drive, run, secrets  # noqa: E402
+from devcloud import account, claude, core, drive, run, secrets  # noqa: E402
 
 
 class Merge(unittest.TestCase):
@@ -90,6 +90,45 @@ class RunLog(unittest.TestCase):
                "2026-01-01T00:00:03.0Z Post job cleanup.\n")
         self.assertEqual(run.log_tail(log, 3), ["line 17", "line 18", "line 19"])
         self.assertEqual(run.log_tail("a\nb\nc", 2), ["b", "c"])   # failed before the command
+
+
+class Account(unittest.TestCase):
+    def test_switch(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as h:
+            env = {"DC_HOME": h, "DC_ACCOUNTS": os.path.join(h, "slots")}
+            old = {k: os.environ.get(k) for k in [*env, "CLAUDE_CONFIG_DIR"]}
+            os.environ.update(env)
+            os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            try:
+                cfg, cred = os.path.join(h, ".claude.json"), os.path.join(h, ".claude", ".credentials.json")
+                def login(uuid, tok):
+                    c = json.loads(core.read(cfg)) if os.path.exists(cfg) else {"projects": {"x": 1}}
+                    c["oauthAccount"] = {"accountUuid": uuid, "emailAddress": uuid + "@x"}
+                    core.write(cfg, json.dumps(c).encode())
+                    core.write(cred, tok.encode())
+                login("a", "tokA")
+                account.save("a")
+                login("b", "tokB")
+                account.save("b")
+                self.assertEqual(account.active_name(), "b")
+                self.assertEqual(account.after("b"), "a")
+                core.write(cred, b"tokB2")            # b's token rotated while active
+                account.use("a")
+                self.assertEqual(core.read(cred), b"tokA")
+                self.assertEqual(account.active_name(), "a")
+                self.assertEqual(json.loads(core.read(cfg))["projects"], {"x": 1})
+                account.use("b")
+                self.assertEqual(core.read(cred), b"tokB2")
+                with self.assertRaises(core.Fail):
+                    account.save("c")                 # b is already saved as b
+            finally:
+                for k, v in old.items():
+                    if v is None:
+                        os.environ.pop(k, None)
+                    else:
+                        os.environ[k] = v
 
 
 if __name__ == "__main__":
