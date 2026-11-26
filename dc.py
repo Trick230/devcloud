@@ -47,6 +47,9 @@ def setup(ci: bool) -> int:
     if ci:
         return 0
     if not core.gh_token():
+        if not sys.stdin.isatty():
+            # the browser sign-in would wait forever in a sandbox setup script or a job
+            raise Fail("no GitHub token: set GH_TOKEN (in a web sandbox: the environment's variables)")
         core.login()
     core.ensure_state()
     core.ensure_key()
