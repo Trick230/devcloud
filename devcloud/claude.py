@@ -82,6 +82,21 @@ def pairs(projects: list[core.Project]) -> dict[str, str]:
     return {k: v for k, v in m.items() if not SKIP.search(k)}
 
 
+def _exclude(root: str, rel: str) -> None:
+    """Keep a restored agent file out of git: its top entry goes into .git/info/exclude."""
+    top = rel.split("/")[0] + ("/" if "/" in rel else "")
+    r = subprocess.run(["git", "-C", root, "rev-parse", "--git-path", "info/exclude"],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        return
+    path = os.path.join(root, r.stdout.strip())
+    text = open(path).read() if os.path.isfile(path) else ""
+    if top not in text.splitlines():
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "a") as f:
+            f.write(("\n" if text and not text.endswith("\n") else "") + top + "\n")
+
+
 def _from_state(rel: str, projects: dict[str, core.Project]) -> str | None:
     """Where a stored file goes on this machine (None: not here)."""
     h = core.home()
@@ -142,6 +157,9 @@ def pull(quiet: bool = False) -> None:
             what = "take_state"   # a fresh sandbox's own defaults (settings.json) give way to the stored setup
         if what == "take_state":
             core.write(local, core.read(stored))
+            if rel.startswith("claude/projects/"):
+                parts = rel.split("/")
+                _exclude(projects[parts[2]].root, "/".join(parts[3:]))
             sync[rel] = sh
             written += 1
         elif what == "same":
