@@ -13,7 +13,7 @@
   dc secrets set [--global] KEY=VALUE...   /  dc secrets unset --global KEY...
 
   dc drive login            Google sign-in (browser); stored in the global secrets
-  dc drive push|pull [PATH...]   project files <-> <Drive>/<project>/, checked by sha256
+  dc drive push|pull [PATH...]   project files <-> <Drive>/Projects/<project>/, checked by sha256
   dc drive forget [--delete] PATH...
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
 

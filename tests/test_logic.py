@@ -42,8 +42,8 @@ class Drive(unittest.TestCase):
 
     def test_remote(self):
         p = core.Project("/r", "Proj", "o/Proj")
-        self.assertEqual(drive.remote(p), "DCDRIVE:Proj")
-        self.assertEqual(drive.remote(p, "refs/a.flac"), "DCDRIVE:Proj/refs/a.flac")
+        self.assertEqual(drive.remote(p), "DCDRIVE:Projects/Proj")
+        self.assertEqual(drive.remote(p, "refs/a.flac"), "DCDRIVE:Projects/Proj/refs/a.flac")
 
 
 class Claude(unittest.TestCase):

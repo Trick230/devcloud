@@ -1,6 +1,6 @@
 """Google Drive for files that must not go into git (copyrighted media, big data).
 
-Each project has its folder, <Drive>/<project>/, through rclone; the remote (DCDRIVE) comes
+Each project has its folder, <Drive>/Projects/<project>/, through rclone; the remote (DCDRIVE) comes
 from RCLONE_CONFIG_DCDRIVE_* in the global secrets, so no rclone.conf exists anywhere.
 `push`/`pull` keep project files in sync with a manifest (drive/<project>.json in the state
 repo: path, size, sha256); `ls`/`get`/`put` work on any path inside the project folder.
@@ -17,6 +17,7 @@ from . import core, secrets
 from .core import Fail, say
 
 REMOTE = "DCDRIVE"
+ROOT = "Projects"  # project folders sit in <Drive>/Projects/
 PREFIX = f"RCLONE_CONFIG_{REMOTE}_"
 
 
@@ -30,7 +31,7 @@ def clean(rel: str) -> str:
 
 
 def remote(p: core.Project, rel: str = "") -> str:
-    return f"{REMOTE}:{posixpath.join(p.name, clean(rel))}" if clean(rel) else f"{REMOTE}:{p.name}"
+    return f"{REMOTE}:{posixpath.join(ROOT, p.name, clean(rel)).rstrip('/')}"
 
 
 def rclone_env() -> dict:
