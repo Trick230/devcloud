@@ -265,10 +265,18 @@ def ensure_state() -> None:
         # without a token "repo view" fails for an existing private repo too
         raise Fail("no GitHub token: set DC_GH_TOKEN or run dc setup")
     repo = state_repo()
-    if gh("repo", "view", repo, "--json", "name", check=False).returncode != 0:
+    url = f"{GH}/{repo}.git"
+    if git("ls-remote", "-q", url, "HEAD", check=False).returncode != 0:
+        # create only when GitHub says it does not exist: a web sandbox's proxy also refuses
+        # repos the session was not given (HTTP 403), and that must not look like "missing"
+        r = gh("repo", "view", repo, "--json", "name", check=False)
+        err = (r.stderr or b"").decode(errors="replace")
+        if r.returncode == 0 or "Could not resolve to a Repository" not in err:
+            raise Fail(f"cannot reach {repo} (in a Claude Code web session, add it to the "
+                       f"session's repositories){': ' + err.strip()[-400:] if err.strip() else ''}")
         say(f"creating the private repo {repo}")
         gh("repo", "create", repo, "--private", "--description", "devcloud private state")
-    git("clone", "-q", f"{GH}/{repo}.git", STATE)
+    git("clone", "-q", url, STATE)
     if not os.path.isfile(os.path.join(STATE, "README.md")):
         write(os.path.join(STATE, "README.md"), STATE_README % owner().encode())
         git("checkout", "-q", "-B", "main", cwd=STATE)

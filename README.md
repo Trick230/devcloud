@@ -44,6 +44,9 @@ tools and points the SessionStart/Stop/SessionEnd hooks at `web-boot.sh`, which 
 runs `dc setup` and `dc claude pull` (the stored settings and `dc-hook.sh` then take over, and
 `dc secrets pull` brings the project's `.env`).
 
+The session's GitHub access is bound to the repositories it was started with (other repos get
+HTTP 403 from its proxy): start it with the project and `<owner>/devcloud-state` both selected.
+
 Network allowlist: github.com, objects.githubusercontent.com,
 release-assets.githubusercontent.com, pypi.org, files.pythonhosted.org, download.pytorch.org,
 static.rust-lang.org, crates.io, static.crates.io, www.kaggle.com, kaggle.com, modal.com,
