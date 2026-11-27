@@ -112,9 +112,12 @@ def branches(root: str) -> list[str]:
             msgs.append(f"{b} has {n} commit(s) from a web session; the fast-forward of {head} failed "
                         f"(local changes in the way?): {(r.stderr or b'').decode(errors='replace').strip()[-200:]}")
         else:
-            msgs.append(f"{b} has {n} commit(s) from a web session not in {head}, and the two diverged: "
-                        "ask the user before merging or rebasing it (or deleting the remote branch, "
-                        "which also silences this).")
+            own = core.out(g("log", "--format=%h %s", "--right-only", "--cherry-pick", "-n", "6",
+                             f"HEAD...{b}")).splitlines()
+            lost = "; ".join(own[:5]) + (" ..." if len(own) > 5 else "")
+            msgs.append(f"{b} has {n} commit(s) from a web session not in {head}, and the two diverged. "
+                        f"Its own commits: {lost}. Ask the user: merge or rebase it into {head}, or delete "
+                        f"the branch (those commits are lost): git push origin --delete {b.removeprefix('origin/')}")
     return msgs
 
 

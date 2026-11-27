@@ -216,6 +216,9 @@ class Session(unittest.TestCase):
             msgs = session.branches(pc)
             self.assertEqual(len(msgs), 1)
             self.assertIn("diverged", msgs[0])
+            self.assertIn(" web2", msgs[0])                                   # the commits it would lose
+            self.assertNotIn("web1", msgs[0])                                 # already in the PC's branch
+            self.assertIn("git push origin --delete claude/a", msgs[0])
             self.assertFalse(os.path.exists(os.path.join(pc, "web2")))
             sh("cherry-pick", "origin/claude/a", cwd=pc)                # integrated by hand
             self.assertEqual(session.branches(pc), [])                      # not pushed yet: stays
