@@ -116,6 +116,9 @@ Every command group, accounts, and the Claude Code web environment setup:
   that is not left in the checkout, actions are pinned to commits, and the runner's `.env` is
   deleted before outputs upload.
 - Drive access uses the `drive.file` scope: `dc` sees only the files it uploaded itself.
+- On Windows, `.dc/` and the projects' `.env` files are readable by your user only (`dc setup`
+  fixes older ones). Web boot reports have tokens, keys and `.env` values masked before they
+  are stored.
 
 ## Development
 
