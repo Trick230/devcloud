@@ -136,6 +136,32 @@ def private_files() -> list[str]:
     return [f for f in dict.fromkeys(files) if os.path.exists(f)]
 
 
+SECRET_RE = re.compile(r"github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|AGE-SECRET-KEY-[A-Z0-9]+"
+                       r"|sk-[A-Za-z0-9_-]{20,}|ya29\.[A-Za-z0-9_-]{20,}|1//[A-Za-z0-9_-]{20,}"
+                       r"|(?:as|ak)-[A-Za-z0-9]{16,}")
+SECRET_NAME = re.compile(r"TOKEN|KEY|SECRET|PASS|AUTH|CRED", re.I)
+
+
+def redact(text: str, values: list[str] | tuple[str, ...] = ()) -> str:
+    """text without the given secret values (8+ characters) nor anything shaped like a token."""
+    for v in sorted({v for v in values if len(v) >= 8}, key=len, reverse=True):
+        text = text.replace(v, "***")
+    return SECRET_RE.sub("***", text)
+
+
+def secret_values(env_files: list[str] | tuple[str, ...] = ()) -> list[str]:
+    """Values of this process's secret-named variables and of every KEY=VALUE in env_files."""
+    vals = [v for k, v in os.environ.items() if SECRET_NAME.search(k)]
+    for f in env_files:
+        try:
+            text = read(f).decode(errors="replace")
+        except OSError:
+            continue
+        vals += [ln.split("=", 1)[1].strip().strip("'\"") for ln in text.splitlines()
+                 if "=" in ln and not ln.lstrip().startswith("#")]
+    return vals
+
+
 def write(path: str, data: bytes, private: bool = False) -> None:
     """Writes a new file next to the old one and swaps it in: a reader that has the old one
     open (a running hook script, which sh reads as it runs) keeps reading the old content."""

@@ -286,7 +286,9 @@ def main(argv: list[str]) -> int:
                 if not a.file:
                     raise Fail("dc report push FILE")
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
-                core.write(dst, core.read(a.file))
+                # plain text in the state repo: no token, key or .env value goes in
+                vals = core.secret_values([os.path.join(core.need_project().root, ".env")])
+                core.write(dst, core.redact(core.read(a.file).decode(errors="replace"), vals).encode())
                 core.commit_state(f"report: {rel}", [rel])
                 return 0
             if not os.path.isfile(dst):

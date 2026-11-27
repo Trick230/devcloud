@@ -196,6 +196,14 @@ class Signed(unittest.TestCase):
             self.assertFalse(claude.resolved("r", local, "s3", sync))   # stored changed again
 
 
+class Redact(unittest.TestCase):
+    def test_redact(self):
+        text = ("tok github_pat_" + "A1" * 20 + " key AGE-SECRET-KEY-1QQQ ghp_" + "x" * 36
+                + " modal ak-" + "b" * 20 + " plain mysecretvalue ok")
+        got = core.redact(text, ["mysecretvalue", "short"])
+        self.assertEqual(got, "tok *** key *** *** modal *** plain *** ok")
+
+
 class Gpu(unittest.TestCase):
     def test_flat(self):
         self.assertTrue(gpu.flat("vocals.flac"))
