@@ -102,6 +102,8 @@ How a session boots:
    `DC_GH_TOKEN`: the sandbox puts placeholders in `GH_TOKEN`/`GITHUB_TOKEN`.
 2. At SessionStart, `web-boot.sh` runs `dc setup` and `dc claude pull`; the synchronised hooks
    (`~/.claude/tools/dc-hook.sh`) take over from there and `dc secrets pull` brings the `.env`.
+   `dc session start` replaces the sandbox's git identity (Claude) with the token's GitHub
+   account and its noreply address; `DC_GIT_NAME`/`DC_GIT_EMAIL` in the environment override it.
 3. The project's `.claude/web-setup.sh`, if any, runs in the background (log in
    `$TMPDIR/dc-web-setup-<project>.log`). With `--prep`, heavy downloads are pre-built into the
    cached image under `~/dc-prep/<repo>`, exposed to the project as `$DC_PREP`.
