@@ -110,7 +110,10 @@ def write(path: str, data: bytes, private: bool = False) -> None:
     d = os.path.dirname(path) or "."
     os.makedirs(d, exist_ok=True)
     tmp = os.path.join(d, f".{os.path.basename(path)}.dc-tmp")
-    with open(tmp, "wb") as f:
+    if os.path.exists(tmp):
+        os.remove(tmp)
+    with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
+                           0o600 if private else 0o666), "wb") as f:
         f.write(data)
     if not WIN:
         mode = 0o600 if private else (os.stat(path).st_mode & 0o7777 if os.path.exists(path) else None)
@@ -288,7 +291,7 @@ GIT_HELPER = '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; };
 def git(*args: str, cwd: str | None = None, capture: bool = True, check: bool = True,
         input: bytes | None = None) -> subprocess.CompletedProcess:
     """git with the devcloud token as credentials (never written into a remote URL)."""
-    return run(["git", "-c", "credential.helper=", "-c", f"credential.helper={GIT_HELPER}", *args],
+    return run(["git", "-c", "credential.helper=", "-c", f"credential.{GH}.helper={GIT_HELPER}", *args],
                cwd=cwd, capture=capture, check=check, input=input, env=gh_env())
 
 
@@ -466,6 +469,27 @@ def recipients() -> str:
     return os.path.join(STATE, "recipients.txt")
 
 
+def recipient_keys() -> list[str]:
+    """The public keys in recipients.txt (comments and blank lines skipped)."""
+    try:
+        text = read(recipients()).decode()
+    except OSError:
+        return []
+    return [s.strip() for s in text.splitlines() if s.strip() and not s.lstrip().startswith("#")]
+
+
+def only_recipient(keys: list[str], pub: str | None = None) -> str:
+    """The single recipient, or Fail: anyone who can write the state repo could otherwise add
+    a key of their own and receive every secret stored after that."""
+    if len(keys) != 1:
+        raise Fail(f"recipients.txt in the state repo must hold exactly one key (it has {len(keys)}): "
+                   "check its history, someone may have added one")
+    if pub is not None and keys[0] != pub:
+        raise Fail(f"{KEY} does not match the state repo's recipients.txt (key rotated? copy "
+                   "the new one: `dc key` on the machine that rotated it)")
+    return keys[0]
+
+
 def ensure_key() -> None:
     env_key = os.environ.get("DC_AGE_KEY", "").strip()
     have_rec = os.path.isfile(recipients())
@@ -473,14 +497,13 @@ def ensure_key() -> None:
         # the environment replaces a key file only when the state repo takes its key (a restored
         # web VM after a rotation), never a newer key with a stale variable
         env_pub = out(run([tool("age-keygen"), "-y"], input=env_key.encode() + b"\n", check=False))
-        if not os.path.isfile(KEY) or (have_rec and env_pub and env_pub in read(recipients()).decode()):
+        if not os.path.isfile(KEY) or (have_rec and env_pub and recipient_keys() == [env_pub]):
             write(KEY, env_key.encode() + b"\n", private=True)
     if os.path.isfile(KEY):
         pub = out(run([tool("age-keygen"), "-y", KEY]))
-        if have_rec and pub not in read(recipients()).decode():
-            raise Fail(f"{KEY} does not match the state repo's recipients.txt (key rotated? copy "
-                       "the new one: `dc key` on the machine that rotated it)")
-        if not have_rec:
+        if have_rec:
+            only_recipient(recipient_keys(), pub)
+        else:
             write(recipients(), pub.encode() + b"\n")
             commit_state("age recipient", ["recipients.txt"])
         return
@@ -530,7 +553,7 @@ def rotate_key() -> list[str]:
 
 
 def encrypt(data: bytes) -> bytes:
-    return run([tool("age"), "-R", recipients()], input=data).stdout
+    return run([tool("age"), "-r", only_recipient(recipient_keys())], input=data).stdout
 
 
 def decrypt(data: bytes) -> bytes:

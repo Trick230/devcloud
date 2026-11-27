@@ -152,6 +152,18 @@ def private(name: str) -> bool:
     return name == ".env" or name.startswith(".env.") or name.endswith((".pem", ".key"))
 
 
+def safe_rel(rel: str) -> bool:
+    """A manifest path that pull may write: inside the project, not a secret, not in git's or
+    a tool's folder (the manifest lives in the state repo, which others may write)."""
+    parts = rel.split("/")
+    return (all(x not in ("", ".", "..") and ":" not in x and "\\" not in x for x in parts)
+            and not any(x in NEVER_DIRS for x in parts[:-1]) and not private(parts[-1]))
+
+
+EXCLUDES = [f"/{d}/**" for d in sorted(NEVER_DIRS)] + [f"**/{d}/**" for d in sorted(NEVER_DIRS)] + \
+           [".env", ".env.*", "*.pem", "*.key"]
+
+
 def walk(path: str) -> list[str]:
     files = []
     for d, ds, fs in os.walk(path):
@@ -192,6 +204,9 @@ def pull(p: core.Project, paths: list[str]) -> None:
         if not sel:
             raise Fail(f"{rel}: not in the Drive manifest of {p.name}")
         for k, e in sorted(sel.items()):
+            if not safe_rel(k):
+                say(f"skipped {k}: not a path a push could have stored")
+                continue
             local = os.path.join(p.root, *k.split("/"))
             if core.file_sha(local) == e["sha256"]:
                 continue
@@ -225,6 +240,9 @@ def get(p: core.Project, rel: str, local_dir: str) -> None:
 
 def put(p: core.Project, local: str, rel: str, include: list[str]) -> None:
     args = ["copy", local, remote(p, rel)]
+    if os.path.isdir(local):        # a folder never takes secrets, git or tool folders
+        for pat in EXCLUDES:
+            args += ["--exclude", pat]
     for pat in include:
         args += ["--include", pat]
     rclone(*args)

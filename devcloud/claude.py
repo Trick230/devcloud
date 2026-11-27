@@ -94,10 +94,29 @@ def _exclude(root: str, rel: str) -> None:
             f.write(("\n" if text and not text.endswith("\n") else "") + top + "\n")
 
 
+def allowed(parts: list[str]) -> bool:
+    """A state path claude push could have produced: anything else in the state repo (written
+    by someone else) never becomes a file here (~/.ssh, a project's .git/hooks, ...)."""
+    if any(x in ("", ".", "..") or "\\" in x or ":" in x for x in parts) or SKIP.search("/".join(parts)):
+        return False
+    if parts[:3] == ["claude", "global", "claude"] and len(parts) > 3:
+        files, dirs = GLOBAL["global/claude"][1:]
+        return (len(parts) == 4 and parts[3] in files) or (len(parts) > 4 and parts[3] in dirs)
+    if parts[:2] == ["claude", "os"] and len(parts) == 5:
+        return parts[3] in PER_OS and parts[4] in PER_OS[parts[3]][1]
+    if parts[:2] == ["claude", "memory"] and len(parts) > 3:
+        return True
+    if parts[:2] == ["claude", "projects"] and len(parts) > 3:
+        return (len(parts) == 4 and parts[3] in PROJECT_FILES) or (len(parts) > 4 and parts[3] in PROJECT_DIRS)
+    return False
+
+
 def _from_state(rel: str, projects: dict[str, core.Project]) -> str | None:
     """Where a stored file goes on this machine (None: not here)."""
     h = core.home()
     parts = rel.split("/")
+    if not allowed(parts):
+        return None
     if parts[:2] == ["claude", "global"] and len(parts) > 3 and parts[2] == "claude":
         return os.path.join(h, "." + parts[2], *parts[3:])
     if parts[:2] == ["claude", "os"] and len(parts) > 4:

@@ -23,6 +23,8 @@ on:
       artifacts_in: {type: string, default: ""}   # artifacts of the calling run, into this folder
     secrets:
       DC_ENV: {required: false}
+permissions:
+  contents: read
 jobs:
   run:
     uses: OWNER/devcloud/.github/workflows/run.yml@REF

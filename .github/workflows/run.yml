@@ -13,6 +13,8 @@ on:
       ref: {type: string, default: main}   # the devcloud commit the caller pinned
     secrets:
       DC_ENV: {required: false}
+permissions:
+  contents: read
 jobs:
   run:
     name: ${{ matrix.command }}
@@ -24,11 +26,14 @@ jobs:
     timeout-minutes: 360
     steps:
       - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
       - uses: actions/checkout@v5
         with:
           repository: ${{ github.repository_owner }}/devcloud
           ref: ${{ inputs.ref }}
           path: .devcloud
+          persist-credentials: false
       - if: inputs.artifacts_in != ''
         uses: actions/download-artifact@v5
         with:

@@ -234,7 +234,8 @@ def ci() -> int:
     core.setup_tools()                           # a fresh runner: age, gh, rclone
     p = core.need_project()
     dot = os.path.join(p.root, ".env")
-    if env and not os.path.exists(dot):          # tools that read .env find their tokens
+    wrote = bool(env) and not os.path.exists(dot)
+    if wrote:                                    # tools that read .env find their tokens
         core.write(dot, "".join(f"{k}={v}\n" for k, v in env.items()).encode(), private=True)
     for line in filter(None, os.environ.get("DC_IN", "").splitlines()):
         rel, _, local = line.strip().partition(" ")
@@ -242,6 +243,8 @@ def ci() -> int:
     cmd = os.environ["DC_COMMAND"]
     print(f"dc: $ {cmd}", flush=True)
     rc = subprocess.call([_bash(), "-c", cmd], cwd=p.root)
+    if wrote and os.path.exists(dot):            # never into Drive outputs or artifacts
+        os.remove(dot)
     for line in filter(None, os.environ.get("DC_OUT", "").splitlines()):
         local, _, rel = line.strip().partition(" ")
         src = os.path.join(p.root, local)

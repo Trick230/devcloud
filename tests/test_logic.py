@@ -105,6 +105,13 @@ class Drive(unittest.TestCase):
             got = sorted(os.path.relpath(f, d).replace(os.sep, "/") for f in drive.walk(d))
         self.assertEqual(got, ["a/keep.txt"])
 
+    def test_safe_rel(self):
+        for ok in ("refs/a.flac", "a/b/c.txt", "x.envelope"):
+            self.assertTrue(drive.safe_rel(ok), ok)
+        for bad in ("../x", "a/../../x", ".git/hooks/post-checkout", "a/.git/config", ".env",
+                    "b/.env.local", "k.pem", "/abs", "C:/x", "a\\..\\x", ".lls/x/bin/uv", ""):
+            self.assertFalse(drive.safe_rel(bad), bad)
+
     def test_remote(self):
         p = core.Project("/r", "Proj", "o/Proj")
         self.assertEqual(drive.remote(p), "DCDRIVE:Projects/Proj")
@@ -124,12 +131,32 @@ class Claude(unittest.TestCase):
             self.assertTrue(claude.SKIP.search(bad), bad)
         self.assertFalse(claude.SKIP.search("claude/projects/P/.claude/settings.json"))
 
+    def test_allowed(self):
+        for ok in ("claude/global/claude/CLAUDE.md", "claude/global/claude/tools/dc-hook.sh",
+                   "claude/os/windows/claude/settings.json", "claude/memory/P/MEMORY.md",
+                   "claude/projects/P/CLAUDE.md", "claude/projects/P/.claude/agents/a.md"):
+            self.assertTrue(claude.allowed(ok.split("/")), ok)
+        for bad in ("claude/global/claude/../../.ssh/authorized_keys", "claude/global/claude/.bashrc",
+                    "claude/global/claude/x/y", "claude/os/windows/claude/other.json",
+                    "claude/projects/P/.git/hooks/pre-commit", "claude/projects/P/tools/x.py",
+                    "claude/memory/../x/y", "claude/projects/P/.claude/settings.local.json", "secrets/x"):
+            self.assertFalse(claude.allowed(bad.split("/")), bad)
+
     def test_runs_code(self):
         for rel in ("claude/global/claude/settings.json", "claude/global/claude/tools/dc-hook.sh",
                     "claude/projects/P/.claude/hooks/x.py"):
             self.assertTrue(claude.runs_code(rel), rel)
         self.assertFalse(claude.runs_code("claude/global/claude/CLAUDE.md"))
         self.assertFalse(claude.runs_code("claude/projects/P/memory/state.md"))
+
+
+class Recipients(unittest.TestCase):
+    def test_only_recipient(self):
+        self.assertEqual(core.only_recipient(["age1me"]), "age1me")
+        self.assertEqual(core.only_recipient(["age1me"], "age1me"), "age1me")
+        for keys, pub in (([], None), (["age1me", "age1them"], None), (["age1them"], "age1me")):
+            with self.assertRaises(core.Fail):
+                core.only_recipient(keys, pub)
 
 
 class Gpu(unittest.TestCase):

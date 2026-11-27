@@ -97,15 +97,20 @@ Every command group, accounts, and the Claude Code web environment setup:
 ## Security
 
 - The age key is the only long-lived secret on a machine; `dc key rotate` replaces it and
-  re-encrypts everything.
+  re-encrypts everything. Secrets are encrypted to that one key only: a second key added to
+  `recipients.txt` in the state repo stops `dc` instead of receiving them.
 - The GitHub token should be fine-grained and limited to the needed repos. `dc check` shows its
   expiry, and sessions warn from 14 days before it.
 - A project's Actions secret holds only the global groups it names in `DC_GLOBAL`. Workflows
   from forks never get it.
 - Logs and artifacts of a public repo are public: copyrighted data moves only through Drive.
   Artifacts are kept for one day, and every line of a secret is masked in the log.
-- `dc drive push` of a folder never takes `.env` files, keys, `.git/` or tool folders.
-- `dc claude pull` names every hook, tool or settings file it brings from the state repo.
+- `dc drive push` of a folder never takes `.env` files, keys, `.git/` or tool folders, and
+  `dc drive pull` never writes them.
+- `dc claude pull` writes only the paths `dc claude push` stores, and names every hook, tool
+  or settings file it brings.
+- The GitHub token goes to github.com only. Workflows run with a read-only `GITHUB_TOKEN`
+  that is not left in the checkout, and the runner's `.env` is deleted before outputs upload.
 - Drive access uses the `drive.file` scope: `dc` sees only the files it uploaded itself.
 
 ## Development
