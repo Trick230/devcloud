@@ -1,11 +1,19 @@
+<div align="center">
+
 # devcloud
 
+**One portable CLI that keeps projects working identically on every machine.**
+
 [![ci](https://github.com/Trick230/devcloud/actions/workflows/ci.yml/badge.svg)](https://github.com/Trick230/devcloud/actions/workflows/ci.yml)
+![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078d4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-A portable command-line tool, `dc`, that keeps a set of projects working identically on every
-machine they touch: Windows and Linux PCs, cloud VMs, Claude Code web sessions and GitHub Actions
-runners. It manages secrets, large files, agent configuration, and CPU and GPU jobs, with nothing
+[Installation](#installation) · [Usage](#usage) · [Security](#security) · [Issues](https://github.com/Trick230/devcloud/issues)
+
+</div>
+
+`dc` gives Windows and Linux PCs, cloud VMs, Claude Code web sessions and GitHub Actions
+runners the same secrets, large files, agent configuration, and CPU and GPU jobs, with nothing
 installed outside its own folder.
 
 ## Contents
@@ -194,4 +202,4 @@ CI runs the same tests on Linux and Windows, x64 and ARM64, on every push.
 
 ## License
 
-[MIT](LICENSE)
+Released under the [MIT License](LICENSE).
