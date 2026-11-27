@@ -16,6 +16,22 @@ class GpuRelay(unittest.TestCase):
         self.assertTrue(c.endswith("./.devcloud/dc gpu --long --gpu A10G gpu/job.json "
                                    "--in dc-gpu-in/* --out dc-gpu-out -- --model 'a b'"))
 
+    def test_bundle(self):
+        import json
+        import tempfile
+        with tempfile.TemporaryDirectory() as t:
+            os.makedirs(os.path.join(t, "job"))
+            os.makedirs(os.path.join(t, "pkg"))
+            for f in ("job/run.py", "pkg/helper.py"):
+                open(os.path.join(t, f), "w").close()
+            with open(os.path.join(t, "job", "spec.json"), "w") as f:
+                json.dump({"name": "x", "script": "run.py", "files": ["../pkg/helper.py"]}, f)
+            d = os.path.join(t, "out")
+            gpu.relay_bundle(gpu.spec_of(os.path.join(t, "job", "spec.json")), d)
+            self.assertEqual(sorted(os.listdir(d)), ["helper.py", "job.json", "run.py"])
+            s = gpu.spec_of(os.path.join(d, "job.json"))
+            self.assertEqual((s["script"], s["files"]), ("run.py", ["helper.py"]))
+
 
 class Merge(unittest.TestCase):
     def test_decide(self):

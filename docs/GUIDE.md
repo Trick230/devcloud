@@ -69,6 +69,12 @@ dc gpu --long gpu/separate.json --in src.flac --out stems/ -- --model M  # Kaggl
 
 The job spec and the script's contract are documented in `devcloud/gpu.py`.
 
+In a Claude Code web session the sandbox's proxy cannot reach Modal or Kaggle, so `dc gpu`
+relays the job by itself: the spec, its files and the inputs go to the project's Drive folder
+(`gpu-relay/<id>`), a `dc run` job on the default branch runs `dc gpu` there, and the outputs
+come back into `--out`. The current work need not be pushed; the project needs `dc init`
+(its workflow on the default branch) and `dc secrets gh`. The Drive folder is removed afterwards.
+
 ## Claude Code web environments
 
 Create one environment per Claude account. `dc web-env` prints everything to paste into

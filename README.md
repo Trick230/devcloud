@@ -90,7 +90,8 @@ Every command group, accounts, and the Claude Code web environment setup:
 3. **Jobs:** `dc init` adds a workflow that calls devcloud's reusable `run.yml`; `dc run`
    dispatches it on the pushed commit, with the project's secrets in one Actions secret.
 4. **GPU:** a job spec (`JOB.json`) names the script and its inputs; `dc gpu` tries Modal, then
-   Kaggle, then prints manual Colab steps.
+   Kaggle, then prints manual Colab steps. From a sandbox that cannot reach them (a Claude Code
+   web session), the job is relayed through a `dc run` job, with its files via Drive.
 
 ## Security
 

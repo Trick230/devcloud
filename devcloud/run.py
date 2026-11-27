@@ -57,14 +57,21 @@ def _branch(p: core.Project) -> str:
     return branch
 
 
+def default_branch(p: core.Project) -> str:
+    # REST, not `gh repo view` (GraphQL, refused in a Claude Code web session)
+    return core.out(core.gh("api", f"repos/{p.repo}", "-q", ".default_branch"))
+
+
 def dispatch(p: core.Project, commands: list[str], runner: str, inputs: list[str], outputs: list[str],
-             artifacts: list[str], wait: bool) -> int:
+             artifacts: list[str], wait: bool, ref: str | None = None) -> int:
+    """ref: run on that branch as pushed (for jobs that bring everything they need through
+    Drive); by default the current branch, which must be pushed."""
     if not p.repo:
         raise Fail(f"{p.name}: no GitHub origin")
     wf = os.path.join(p.root, ".github", "workflows", WORKFLOW)
     if not os.path.isfile(wf):
         raise Fail(f"no .github/workflows/{WORKFLOW} in {p.name}: dc init")
-    branch, tag = _branch(p), uuid.uuid4().hex[:8]
+    branch, tag = ref or _branch(p), uuid.uuid4().hex[:8]
     fields = {"id": tag, "commands": json.dumps(commands), "os": runner,
               "drive_in": "\n".join(inputs), "drive_out": "\n".join(outputs),
               "artifacts": "\n".join(artifacts)}

@@ -19,7 +19,8 @@ the global/project secrets. The modal and kaggle CLIs go into .dc/<platform>/bin
 
 In a Claude Code web session the sandbox's proxy cannot carry Modal's gRPC (and blocks the
 Kaggle API), so the job is relayed: inputs to Drive, `dc gpu` in a `dc run` job on GitHub
-Actions, outputs back from Drive. The spec must be in the project's pushed commit.
+Actions, outputs back from Drive. The spec and its files go through Drive too, so the job
+runs on the default branch and the current work need not be pushed.
 """
 from __future__ import annotations
 
@@ -253,23 +254,37 @@ def relay_command(spec_rel: str, args: list[str], long: bool, gpu_type: str | No
     return " && ".join(setup + [f"{shlex.join(gpu)} --in dc-gpu-in/* --out dc-gpu-out{tail}"])
 
 
+def relay_bundle(s: dict, d: str) -> None:
+    """The spec as job.json with its script and files flat next to it."""
+    os.makedirs(d, exist_ok=True)
+    names = [os.path.basename(f) for f in s["ship"]]
+    for f in s["ship"]:
+        shutil.copy(f, d)
+    meta = {k: v for k, v in s.items() if k not in ("dir", "ship")}
+    meta.update(script=names[0], files=names[1:])
+    with open(os.path.join(d, "job.json"), "w") as f:
+        json.dump(meta, f)
+
+
 def relay(p: core.Project | None, spec: str, ins: list[str], out: str, args: list[str],
           long: bool) -> int:
-    if not p:
-        raise Fail("relaying a GPU job from the web needs a project")
-    spec_rel = os.path.relpath(os.path.abspath(spec), p.root)
-    if spec_rel.startswith(".."):
-        raise Fail(f"{spec}: the job spec must be inside the project")
+    if not p or not p.repo:
+        raise Fail("relaying a GPU job from the web needs a project with a GitHub origin")
+    s = spec_of(spec)
     base = f"gpu-relay/{uuid.uuid4().hex[:8]}"
     say(f"gpu: web session, relaying through GitHub Actions ({base} on Drive)")
     try:
+        with tempfile.TemporaryDirectory() as t:
+            relay_bundle(s, t)
+            drive.put(p, t, f"{base}/job", [])
         for f in ins:
             drive.rclone("copyto", f, drive.remote(p, f"{base}/in/{os.path.basename(f)}"))
-        cmd = relay_command(spec_rel.replace(os.sep, "/"), args, long, os.environ.get("DC_GPU_TYPE"))
-        rc = run.dispatch(p, [cmd], "ubuntu-latest", [f"{base}/in dc-gpu-in"],
-                          [f"dc-gpu-out {base}/out"], [], True)
+        cmd = relay_command("dc-gpu-job/job.json", args, long, os.environ.get("DC_GPU_TYPE"))
+        rc = run.dispatch(p, [cmd], "ubuntu-latest", [f"{base}/in dc-gpu-in", f"{base}/job dc-gpu-job"],
+                          [f"dc-gpu-out {base}/out"], [], True, ref=run.default_branch(p))
         if rc == 0:
             drive.get(p, f"{base}/out", out)
         return rc
     finally:
         drive.rclone("purge", drive.remote(p, base), check=False)
+        drive.rclone("rmdirs", drive.remote(p, "gpu-relay"), check=False)   # gone once empty
