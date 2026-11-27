@@ -10,43 +10,39 @@
 
 </div>
 
+```console
+$ dc run --each "./lls test pal" "./lls test tempo"
+dc: run https://github.com/<owner>/LosslessSync/actions/runs/45930529415
+--- run / ./lls test pal: success
+  Ran 22 tests in 30.201s
+  OK
+  pal: PASS
+--- run / ./lls test tempo: success
+  Ran 22 tests in 79.941s
+  OK
+  tempo: PASS
+dc: run succeeded (deleted from the Actions history; failed runs are kept)
+```
+
+<sub>Abridged: two test jobs run in parallel on GitHub Actions, started locally, in 2 minutes.</sub>
+
 `dc` gives Windows and Linux PCs, cloud VMs, Claude Code web sessions and GitHub Actions
 runners the same secrets, large files, agent configuration, and CPU and GPU jobs, with nothing
 installed outside its own folder.
 
-## Contents
+## Highlights
 
-- [Features](#features)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Claude Code web environments](#claude-code-web-environments)
-- [Security](#security)
-- [Repository layout](#repository-layout)
-- [Development](#development)
-- [License](#license)
-
-## Features
-
-| Area | What it does |
-|---|---|
-| **Secrets** | Each project's `.env` is age-encrypted into a private state repo (`<owner>/devcloud-state`). Lines after `# dc: local` stay on the machine. |
-| **Large files** | Copyrighted or large files live in `<Google Drive>/Projects/<project>/`, tracked by a sha256 manifest, never in git. |
-| **Agent setup** | `~/.claude` configuration, per-project memory and the projects' local agent files are synchronised between machines. |
-| **Sessions** | Hooks bring a web session's pushed `claude/*` branch into the PC's branch, clean up merged ones, and warn when another session is active on the same project. |
-| **Accounts** | Switches between saved Claude Code accounts without a browser sign-in; on a rate limit, a desktop notification names the next account. |
-| **CPU jobs** | `dc run` runs a command on GitHub Actions in the project's repo (up to 6 h per job, parallel with `--each`). |
-| **GPU jobs** | `dc gpu` runs a project's script on a free cloud GPU: Modal, then Kaggle, then Colab (manual). |
-| **Housekeeping** | Successful `dc run` jobs are removed from the Actions history; `dc gc` trims the rest. |
-
-Every dependency (uv, Python, age, gh, rclone) is pinned by sha256 and downloaded into `.dc/`.
-Nothing is installed system-wide and nothing is read from `PATH` except `git` and `bash`.
-
-## Requirements
-
-- Windows 10/11 or Linux, x64 or ARM64
-- `git`, and `bash` (Git Bash on Windows)
-- A GitHub account; optionally a Google account (Drive), Modal and Kaggle accounts (GPU)
+- **Encrypted secrets everywhere.** Each project's `.env` is age-encrypted in a private state
+  repo and restored on any machine with one command.
+- **Large files out of git.** Media and models live in Google Drive, tracked by a sha256
+  manifest and verified on every pull.
+- **Cloud CPU and GPU on demand.** `dc run` runs any command on GitHub Actions (parallel with
+  `--each`); `dc gpu` runs a script on a free cloud GPU (Modal, then Kaggle).
+- **Agent setup that follows you.** Claude Code configuration, memory and hand-offs sync
+  between PCs and web sessions, with a warning when two sessions work on the same project.
+- **Clean by default.** Successful jobs leave no Actions history; `dc gc` trims the rest.
+- **Self-contained.** uv, Python, age, gh and rclone are pinned by sha256 into `.dc/`; only
+  `git` and `bash` come from the system.
 
 ## Installation
 
@@ -55,140 +51,57 @@ git clone https://github.com/<owner>/devcloud && cd devcloud
 ./dc setup          # Windows: .\dc setup
 ```
 
-`dc setup` fetches the tools, signs in to GitHub, clones the state repo and sets up the age key.
-The first machine creates the key and the private state repo. Every other machine needs the key
-once: run `dc key` on a machine that has it and put the value in `DC_AGE_KEY` (or in
-`.dc/age-key.txt`) before `dc setup`.
+`dc setup` fetches the tools, signs in to GitHub, clones the state repo and sets up the age
+key. The first machine creates the key; every other machine gets it once (`dc key` on a machine
+that has it, into `DC_AGE_KEY` or `.dc/age-key.txt`). Windows or Linux, x64 or ARM64.
 
-Check the result with `dc check`:
-
-```text
+```console
+$ dc check
 platform : windows-x64
 tools    : age: yes, gh: yes, rclone: yes
 github   : token yes, expires 2027-02-24
-state    : .../devcloud/.dc/state
 age key  : yes
 drive    : yes
 ```
 
 ## Usage
 
-`dc help` lists every command and option. The common ones:
-
-### Secrets
-
 ```sh
-dc secrets push                 # the project's .env -> state repo
-dc secrets pull                 # state repo -> the project's .env (--force on a conflict)
-dc secrets set [--global] KEY=VALUE...
-dc secrets gh                   # project secrets + the global groups named in DC_GLOBAL
-                                # (e.g. DC_GLOBAL=drive modal kaggle) -> Actions secret DC_ENV
-dc key rotate                   # new age key, every stored secret re-encrypted
+dc secrets push | pull           # the project's .env <-> encrypted state repo
+dc drive push media/             # project files -> Drive, recorded in the manifest
+dc drive pull                    # everything in the manifest, verified by sha256
+dc claude pull | push            # agent configuration and memory (the hooks run these)
+dc init                          # add the job workflow to a project (commit and push it)
+dc run -- ./lls test all         # one job on GitHub Actions
+dc run --in refs:in --out out:results -- ./lls batch in out   # files in and out via Drive
+dc gpu gpu/separate.json --in src.flac --out stems/           # one job on a cloud GPU
+dc gc --all                      # trim the Actions history of every project
 ```
 
-### Google Drive
+Every command group, accounts, and the Claude Code web environment setup:
+**[docs/GUIDE.md](docs/GUIDE.md)**, or `dc help`.
 
-```sh
-dc drive login ID SECRET        # once, with your own OAuth client (Desktop app, published)
-dc drive push media/            # project files -> Drive, recorded in the manifest
-dc drive pull                   # everything in the manifest, verified by sha256
-dc drive ls refs                # also: get REMOTE [DIR], put LOCAL REMOTE, forget PATH
-```
+## How it works
 
-The Drive scope is `drive.file`: `dc` only sees the files it uploaded itself.
-
-### Agent configuration and accounts
-
-```sh
-dc claude pull | push           # ~/.claude, memory and agent files (the hooks run these)
-dc account save NAME            # keep the signed-in account (this machine only)
-dc account use NAME             # switch without the browser (new sessions, claude --resume)
-dc report                       # the project's last web-session boot report
-```
-
-### CPU jobs on GitHub Actions
-
-```sh
-dc init                         # adds .github/workflows/dc.yml to the project (commit and push it)
-dc run -- ./lls test all
-dc run --in refs:in --out out:results -- ./lls batch in out
-dc run --each "./lls test pal" "./lls test tempo"
-dc brief -- ./lls batch in out  # the same job as a task for a Claude Code web session
-dc gc --all [--dry-run]         # Actions history: newest success of each workflow (max 6),
-                                # failures kept one day; runs at session end
-```
-
-A job runs the pushed commit; `--in` and `--out` move files through Drive.
-
-### GPU jobs
-
-```sh
-dc gpu gpu/separate.json --in src.flac --out stems/                      # Modal -> Kaggle -> Colab
-dc gpu --long gpu/separate.json --in src.flac --out stems/ -- --model M  # Kaggle first
-```
-
-The job spec and the script's contract are documented in `devcloud/gpu.py`.
-
-## Claude Code web environments
-
-Create one environment per Claude account. `dc web-env` prints everything to paste into
-claude.ai, with the real values: variables, setup script and network allowlist.
-
-| Setting | Value |
-|---|---|
-| Variables | `DC_AGE_KEY` (from `dc key`), `DC_GH_TOKEN` (fine-grained token: devcloud, devcloud-state and the project repos; Contents, Actions, Secrets and Workflows read/write) |
-| Setup script | clones or updates devcloud, then `~/devcloud/dc setup --web` |
-| Repositories | start each session with the project **and** `<owner>/devcloud-state` selected (other repos get HTTP 403 from the session proxy) |
-| Network | github.com, objects.githubusercontent.com, release-assets.githubusercontent.com, pypi.org, files.pythonhosted.org, download.pytorch.org, static.rust-lang.org, crates.io, static.crates.io, www.kaggle.com, kaggle.com, modal.com, api.modal.com, www.googleapis.com, oauth2.googleapis.com, *.googleusercontent.com |
-
-```sh
-#!/bin/sh
-git clone -q https://github.com/<owner>/devcloud ~/devcloud 2>/dev/null || git -C ~/devcloud pull -q
-~/devcloud/dc setup --web
-# optional, one per project with a heavy setup (kept in the environment's cached image):
-#   ~/devcloud/dc setup --web --prep <owner>/<repo>="<command>"
-```
-
-How a session boots:
-
-1. The setup script installs the tools and points the session hooks at `web-boot.sh`. It cannot
-   read the environment's variables (only the session gets them), which is why the token is in
-   `DC_GH_TOKEN`: the sandbox puts placeholders in `GH_TOKEN`/`GITHUB_TOKEN`.
-2. At SessionStart, `web-boot.sh` runs `dc setup` and `dc claude pull`; the synchronised hooks
-   (`~/.claude/tools/dc-hook.sh`) take over from there and `dc secrets pull` brings the `.env`.
-3. The project's `.claude/web-setup.sh`, if any, runs in the background (log in
-   `$TMPDIR/dc-web-setup-<project>.log`). With `--prep`, heavy downloads are pre-built into the
-   cached image under `~/dc-prep/<repo>`, exposed to the project as `$DC_PREP`.
-4. After every answer and at the end, `dc claude push` saves the state (a sandbox can stop at any
-   time). A hand-off written by `handoff.py` goes into the project's memory, and the next session
-   on the repo, cloud or PC, starts from it.
+1. **State repo:** a private `<owner>/devcloud-state` holds the encrypted secrets, Drive
+   manifests, agent files and session claims; every machine clones it into `.dc/state`.
+2. **Hooks:** Claude Code session hooks pull the state at start, push it after every answer,
+   and bring a web session's `claude/*` branch into the PC's branch.
+3. **Jobs:** `dc init` adds a workflow that calls devcloud's reusable `run.yml`; `dc run`
+   dispatches it on the pushed commit, with the project's secrets in one Actions secret.
+4. **GPU:** a job spec (`JOB.json`) names the script and its inputs; `dc gpu` tries Modal, then
+   Kaggle, then prints manual Colab steps.
 
 ## Security
 
-- The age key is the only long-lived secret on a machine; everything in the state repo is
-  encrypted to it. `dc key rotate` replaces it.
-- The GitHub token should be fine-grained and limited to the repos above. `dc check` shows its
-  expiry, and sessions start with a warning from 14 days before it expires.
-- `DC_ENV` holds only the groups the project names in `DC_GLOBAL`. Workflows from forks never
-  get repository secrets; anyone with write access to the repository does.
-- Artifacts and logs of a public repository are public. Copyrighted data moves only through
-  Drive (`--in`, `--out`), never `--artifact`.
-- GPU tokens live in the global secrets. Modal runs with a 0 $ spend limit on the monthly credits;
-  Kaggle's GPU quota is weekly.
-- `dc claude` does not propagate deletions. A file changed on two machines keeps the local copy
-  and leaves the other as `<name>.dc-remote`, to merge by hand.
-
-## Repository layout
-
-```text
-dc, dc.cmd, dc.py        launchers (Linux/Git Bash, Windows) and the command-line entry point
-devcloud/                core, secrets, drive, claude, session, account, run, gpu, web modules
-templates/dc.yml         the per-project workflow written by dc init
-.github/workflows/       ci.yml (tests on 4 platforms), run.yml (reusable job runner for dc run)
-web-boot.sh              SessionStart/Stop/SessionEnd entry point in web sessions
-tests/                   unit tests
-.dc/                     local tools, caches, keys and the state clone (not in git)
-```
+- The age key is the only long-lived secret on a machine; `dc key rotate` replaces it and
+  re-encrypts everything.
+- The GitHub token should be fine-grained and limited to the needed repos. `dc check` shows its
+  expiry, and sessions warn from 14 days before it.
+- A project's Actions secret holds only the global groups it names in `DC_GLOBAL`. Workflows
+  from forks never get it.
+- Logs and artifacts of a public repo are public: copyrighted data moves only through Drive.
+- Drive access uses the `drive.file` scope: `dc` sees only the files it uploaded itself.
 
 ## Development
 
@@ -196,7 +109,29 @@ tests/                   unit tests
 ./dc test                # unit tests
 ```
 
-CI runs the same tests on Linux and Windows, x64 and ARM64, on every push.
+| Path | Contents |
+| --- | --- |
+| `dc`, `dc.cmd`, `dc.py` | launchers (Linux and Git Bash, Windows) and the entry point |
+| `devcloud/` | core, secrets, drive, claude, session, account, run, gpu and web modules |
+| `templates/dc.yml` | the per-project workflow written by `dc init` |
+| `.github/workflows/` | `ci.yml` (tests on four platforms), `run.yml` (the reusable job runner) |
+| `web-boot.sh` | session hook entry point in Claude Code web sessions |
+
+CI runs the tests on Linux and Windows, x64 and ARM64, on every push.
+
+## Limitations
+
+- A GitHub Actions job runs at most 6 hours; longer work goes to a web session (`dc brief`).
+- Colab has no API: the last GPU fallback is manual.
+- `dc claude` does not propagate deletions; a file changed on two machines leaves the other
+  copy as `<name>.dc-remote`, to merge by hand.
+- A Claude Code web session reaches only the repos it was started with.
+
+## Acknowledgements
+
+[age](https://github.com/FiloSottile/age), [rclone](https://rclone.org),
+[GitHub CLI](https://cli.github.com), [uv](https://github.com/astral-sh/uv),
+[Modal](https://modal.com) and [Kaggle](https://www.kaggle.com).
 
 ## License
 
