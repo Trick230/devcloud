@@ -5,7 +5,16 @@ import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from devcloud import account, claude, core, drive, run, secrets, session  # noqa: E402
+from devcloud import account, claude, core, drive, gpu, run, secrets, session  # noqa: E402
+
+
+class GpuRelay(unittest.TestCase):
+    def test_command(self):
+        c = gpu.relay_command("gpu/job.json", ["--model", "a b"], True, "A10G")
+        self.assertIn("pipx install -q modal==1.6.4", c)
+        self.assertIn("--preinstall six kaggle==2.2.5", c)
+        self.assertTrue(c.endswith("./.devcloud/dc gpu --long --gpu A10G gpu/job.json "
+                                   "--in dc-gpu-in/* --out dc-gpu-out -- --model 'a b'"))
 
 
 class Merge(unittest.TestCase):

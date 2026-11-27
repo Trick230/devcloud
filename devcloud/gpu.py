@@ -16,18 +16,24 @@ name) and writes its outputs into OUT_DIR, which come back into --out. DC_GPU_CA
 folder for the job's cached data (Modal: baked into the image by --prepare).
 Tokens: MODAL_TOKEN_ID/MODAL_TOKEN_SECRET, KAGGLE_USERNAME/KAGGLE_KEY in the environment or
 the global/project secrets. The modal and kaggle CLIs go into .dc/<platform>/bin.
+
+In a Claude Code web session the sandbox's proxy cannot carry Modal's gRPC (and blocks the
+Kaggle API), so the job is relayed: inputs to Drive, `dc gpu` in a `dc run` job on GitHub
+Actions, outputs back from Drive. The spec must be in the project's pushed commit.
 """
 from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
-from . import core, secrets
+from . import core, drive, run, secrets
 from .core import Fail, say
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -220,6 +226,8 @@ def dispatch(p: core.Project | None, spec: str, ins: list[str], out: str, args: 
         raise Fail("two inputs share a base name")
     out = os.path.abspath(out)
     os.makedirs(out, exist_ok=True)
+    if os.environ.get("CLAUDE_CODE_REMOTE") and not core.CI:
+        return relay(p, spec, ins, out, args, long)
     env = token_env(p)
     for prov in ([kaggle, modal, colab] if long else [modal, kaggle, colab]):
         try:
@@ -230,3 +238,38 @@ def dispatch(p: core.Project | None, spec: str, ins: list[str], out: str, args: 
         except Skip as e:
             say(f"gpu: {prov.__name__}: {e}")
     return 1
+
+
+def relay_command(spec_rel: str, args: list[str], long: bool, gpu_type: str | None) -> str:
+    """The Actions job's command: the provider CLIs (no uv on the runner), then `dc gpu` on the
+    inputs by glob, so their names stay out of a public repo's logs."""
+    setup = []
+    for pkg, *rest in CLIS.values():
+        extra = [f"--preinstall {shlex.quote(w)}" for k, w in zip(rest[::2], rest[1::2]) if k == "--with"]
+        setup.append(f"pipx install -q {' '.join(extra + [shlex.quote(pkg)])} >/dev/null")
+    gpu = ["./.devcloud/dc", "gpu", *(["--long"] if long else []),
+           *(["--gpu", gpu_type] if gpu_type else []), spec_rel]
+    tail = f" -- {shlex.join(args)}" if args else ""
+    return " && ".join(setup + [f"{shlex.join(gpu)} --in dc-gpu-in/* --out dc-gpu-out{tail}"])
+
+
+def relay(p: core.Project | None, spec: str, ins: list[str], out: str, args: list[str],
+          long: bool) -> int:
+    if not p:
+        raise Fail("relaying a GPU job from the web needs a project")
+    spec_rel = os.path.relpath(os.path.abspath(spec), p.root)
+    if spec_rel.startswith(".."):
+        raise Fail(f"{spec}: the job spec must be inside the project")
+    base = f"gpu-relay/{uuid.uuid4().hex[:8]}"
+    say(f"gpu: web session, relaying through GitHub Actions ({base} on Drive)")
+    try:
+        for f in ins:
+            drive.rclone("copyto", f, drive.remote(p, f"{base}/in/{os.path.basename(f)}"))
+        cmd = relay_command(spec_rel.replace(os.sep, "/"), args, long, os.environ.get("DC_GPU_TYPE"))
+        rc = run.dispatch(p, [cmd], "ubuntu-latest", [f"{base}/in dc-gpu-in"],
+                          [f"dc-gpu-out {base}/out"], [], True)
+        if rc == 0:
+            drive.get(p, f"{base}/out", out)
+        return rc
+    finally:
+        drive.rclone("purge", drive.remote(p, base), check=False)
