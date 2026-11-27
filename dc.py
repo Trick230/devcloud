@@ -58,6 +58,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -121,7 +122,12 @@ def check() -> int:
     ok = lambda b: "yes" if b else "no"  # noqa: E731
     print(f"platform : {core.PLAT}{' (ephemeral)' if core.EPHEMERAL else ''}")
     print(f"tools    : " + ", ".join(f"{t}: {ok(os.path.isfile(core.tool(t)))}" for t in ("age", "gh", "rclone")))
-    print(f"github   : token {ok(core.gh_token())}")
+    exp = core.token_expiry(refresh=True) if core.gh_token() else None
+    when = f", expires {time.strftime('%Y-%m-%d', time.gmtime(exp))}" if exp else ""
+    print(f"github   : token {ok(core.gh_token())}{when}")
+    w = core.token_warning(exp, time.time())
+    if w:
+        print(f"WARNING  : {w}")
     st = os.path.isdir(os.path.join(core.STATE, ".git"))
     print(f"state    : {core.STATE if st else 'not cloned (dc setup)'}")
     print(f"age key  : {ok(os.path.isfile(core.KEY) or os.environ.get('DC_AGE_KEY'))}")

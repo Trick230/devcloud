@@ -139,6 +139,9 @@ def start(sid: str, source: str = "startup") -> list[str]:
     w = other_active(_load(os.path.join(core.STATE, _rel(p))), sid, time.time(), handed_off(p.root))
     if w:
         msgs.append(w)
+    w = core.token_warning(core.token_expiry(), time.time())   # cached: claim refreshes it
+    if w:
+        msgs.append(w)
     return msgs
 
 
@@ -148,6 +151,7 @@ def claim(sid: str) -> None:
     if p:
         core.ensure_state()
         _claim(p, sid)
+    core.token_expiry(refresh=True)
 
 
 def beat(sid: str) -> None:

@@ -6,6 +6,7 @@ Everything lives in .dc/ next to this repo: .dc/<platform>/ (uv, Python, tools),
 """
 from __future__ import annotations
 
+import calendar
 import hashlib
 import io
 import json
@@ -16,6 +17,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import time
 import urllib.request
 import zipfile
 
@@ -201,6 +203,50 @@ def gh_token() -> str | None:
         return read(TOKEN).decode().strip() or None
     except OSError:
         return None
+
+
+TOKEN_WARN = 14 * 86400     # warn this long before the GitHub token expires
+TOKEN_CACHE = 86400         # ask GitHub at most once a day
+
+
+def token_expiry(refresh: bool = False) -> float | None:
+    """Expiry (epoch) of the GitHub token, None if it never expires or is unknown. GitHub
+    sends it in a header on every authenticated call; cached in .dc/<plat>/gh-token-expiry
+    (keyed by the token's hash) so a session start reads a file, and only refresh asks."""
+    t = gh_token()
+    if not t:
+        return None
+    key = sha(t.encode())[:16]
+    cache = os.path.join(LOCAL, "gh-token-expiry")
+    try:
+        k, exp, at = read(cache).decode().split()
+        if k == key and (not refresh or time.time() - float(at) < TOKEN_CACHE):
+            return float(exp) or None
+    except (OSError, ValueError):
+        if not refresh:
+            return None
+    req = urllib.request.Request("https://api.github.com/rate_limit", headers={
+        "Authorization": f"Bearer {t}", "User-Agent": "devcloud"})
+    try:
+        with urllib.request.urlopen(req, timeout=15) as r:
+            h = r.headers.get("github-authentication-token-expiration")
+    except OSError:
+        return None
+    exp = 0.0
+    if h:   # "2027-02-24 12:00:00 UTC" (or +0000)
+        exp = float(calendar.timegm(time.strptime(h[:19], "%Y-%m-%d %H:%M:%S")))
+    write(cache, f"{key} {exp:.0f} {time.time():.0f}\n".encode())
+    return exp or None
+
+
+def token_warning(exp: float | None, now: float) -> str | None:
+    if exp is None or exp - now > TOKEN_WARN:
+        return None
+    days = int((exp - now) // 86400)
+    when = time.strftime("%Y-%m-%d", time.gmtime(exp))
+    state = f"expired on {when}" if days < 0 else f"expires in {days} day(s) ({when})"
+    return (f"GitHub token {state}: regenerate it at github.com/settings/tokens, put it in "
+            ".dc/gh-token and DC_GH_TOKEN of each web environment (dc web-env)")
 
 
 def gh_env() -> dict:

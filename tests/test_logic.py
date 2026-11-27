@@ -171,6 +171,16 @@ class Account(unittest.TestCase):
                         os.environ[k] = v
 
 
+class Token(unittest.TestCase):
+    def test_warning(self):
+        day, now = 86400, 1_800_000_000
+        self.assertIsNone(core.token_warning(None, now))              # never expires / unknown
+        self.assertIsNone(core.token_warning(now + 15 * day, now))
+        self.assertIn("in 14 day(s)", core.token_warning(now + 14 * day, now))
+        self.assertIn("in 0 day(s)", core.token_warning(now + 3600, now))
+        self.assertIn("expired", core.token_warning(now - 3600, now))
+
+
 class Session(unittest.TestCase):
     def test_other_active(self):
         c = {"session": "a", "where": "web", "host": "h", "time": 1000}
