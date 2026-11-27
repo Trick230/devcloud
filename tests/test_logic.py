@@ -159,6 +159,41 @@ class Recipients(unittest.TestCase):
                 core.only_recipient(keys, pub)
 
 
+class Signed(unittest.TestCase):
+    def test_manifest(self):
+        import json
+        import tempfile
+        old = core.STATE
+        with tempfile.TemporaryDirectory() as d:
+            core.STATE = d
+            try:
+                k = b"k" * 32
+                self.assertEqual(core.signed_files(k), {})
+                self.assertTrue(core.sign({"claude/a/tools/x.py": "s1"}, k))
+                self.assertFalse(core.sign({"claude/a/tools/x.py": "s1"}, k))
+                self.assertEqual(core.signed_files(k), {"claude/a/tools/x.py": "s1"})
+                self.assertEqual(core.signed_files(b"z" * 32), {})      # other key: forged
+                f = os.path.join(d, core.SIGNED)
+                m = json.loads(open(f).read())
+                m["files"]["claude/a/hooks/evil.sh"] = "s2"              # token-only edit
+                with open(f, "w") as fh:
+                    json.dump(m, fh)
+                self.assertEqual(core.signed_files(k), {})
+            finally:
+                core.STATE = old
+
+    def test_resolved(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            local = os.path.join(d, "m.md")
+            sync = {"r#conflict": "s2"}
+            open(local + ".dc-remote", "w").close()
+            self.assertFalse(claude.resolved("r", local, "s2", sync))   # not merged yet
+            os.remove(local + ".dc-remote")
+            self.assertTrue(claude.resolved("r", local, "s2", sync))
+            self.assertFalse(claude.resolved("r", local, "s3", sync))   # stored changed again
+
+
 class Gpu(unittest.TestCase):
     def test_job_status(self):
         import tempfile

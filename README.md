@@ -108,9 +108,12 @@ Every command group, accounts, and the Claude Code web environment setup:
 - `dc drive push` of a folder never takes `.env` files, keys, `.git/` or tool folders, and
   `dc drive pull` never writes them.
 - `dc claude pull` writes only the paths `dc claude push` stores, and names every hook, tool
-  or settings file it brings.
+  or settings file it brings. Those files are applied only when a machine holding the age key
+  stored them (a signed manifest), so the GitHub token alone cannot plant a hook;
+  `dc claude trust` signs the stored ones after you have read them.
 - The GitHub token goes to github.com only. Workflows run with a read-only `GITHUB_TOKEN`
-  that is not left in the checkout, and the runner's `.env` is deleted before outputs upload.
+  that is not left in the checkout, actions are pinned to commits, and the runner's `.env` is
+  deleted before outputs upload.
 - Drive access uses the `drive.file` scope: `dc` sees only the files it uploaded itself.
 
 ## Development
@@ -134,7 +137,8 @@ CI runs the tests on Linux and Windows, x64 and ARM64, on every push.
 - A GitHub Actions job runs at most 6 hours; longer work goes to a web session (`dc brief`).
 - Colab has no API: the last GPU fallback is manual.
 - `dc claude` does not propagate deletions; a file changed on two machines leaves the other
-  copy as `<name>.dc-remote`, to merge by hand.
+  copy as `<name>.dc-remote`: merge it into the file and delete it, and the next push stores
+  your version.
 - A Claude Code web session reaches only the repos it was started with.
 
 ## Acknowledgements

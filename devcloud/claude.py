@@ -12,7 +12,10 @@ Never credentials (.credentials.json), sessions, history or caches. Each file is
 merged three-way against what this machine last synced (.dc/sync.json): a side that did not
 change takes the other; a file changed on both sides keeps the local copy and writes the
 stored one next to it as <name>.dc-remote (on an ephemeral machine, a file it never synced
-takes the stored copy). Deleted files are not propagated.
+takes the stored copy). Merge what you need from the .dc-remote copy into the file, delete the
+.dc-remote copy, and the next push stores your version. Deleted files are not propagated.
+Files that run code (settings.json, tools, hooks) are applied only when a machine holding the
+age key stored them (state signed.json): a GitHub token alone cannot plant a hook.
 """
 from __future__ import annotations
 
@@ -129,28 +132,43 @@ def _from_state(rel: str, projects: dict[str, core.Project]) -> str | None:
     return None
 
 
+def resolved(rel: str, local: str, sh: str | None, sync: dict) -> bool:
+    """A conflict merged by hand: the .dc-remote copy pull wrote for this stored version is gone."""
+    return sync.get(rel + "#conflict") == sh and not os.path.exists(local + ".dc-remote")
+
+
 def push(quiet: bool = False) -> None:
     core.ensure_state()
     projects = core.known_projects()
     sync = core.load_sync()
-    changed, conflicts = [], []
+    changed, conflicts, code = [], [], {}
     for rel, local in sorted(pairs(projects).items()):
         stored = os.path.join(core.STATE, *rel.split("/"))
         lh, sh = core.file_sha(local), core.file_sha(stored)
         what = core.decide(lh, sync.get(rel), sh)
+        if what == "conflict" and resolved(rel, local, sh, sync):
+            what = "take_local"
         if what == "take_local":
             core.write(stored, core.read(local))
             changed.append(rel)
             sync[rel] = lh
+            sync.pop(rel + "#conflict", None)
         elif what == "same" and lh:
             sync[rel] = lh
         elif what == "conflict":
             conflicts.append(rel)
+        if runs_code(rel) and what in ("take_local", "same") and lh:
+            code[rel] = lh          # this machine's own copy: vouched for
+    try:
+        if core.sign(code):
+            changed.append(core.SIGNED)
+    except core.Fail as e:          # the files still sync; other machines just won't run them
+        say(f"claude push: code files not signed ({e})")
     if changed:
         core.commit_state(f"claude: {len(changed)} file(s)", changed)
     core.save_sync(sync)
     for c in conflicts:
-        say(f"conflict (changed here and elsewhere; dc claude pull): {c}")
+        say(f"conflict (changed here and elsewhere; dc claude pull, merge, delete the .dc-remote): {c}")
     if not quiet or changed:
         say(f"claude push: {len(changed)} file(s) stored, {len(conflicts)} conflict(s)")
 
@@ -160,7 +178,8 @@ def pull(quiet: bool = False) -> None:
     projects = {p.name: p for p in core.known_projects()}
     sync = core.load_sync()
     base = os.path.join(core.STATE, "claude")
-    written, conflicts, code = 0, 0, []
+    written, conflicts, code, unsigned = 0, 0, [], []
+    signed = core.signed_files()
     for rel in sorted("claude/" + r for r in _walk(base, ".") if not SKIP.search(r)):
         rel = rel.replace("claude/./", "claude/")
         local = _from_state(rel, projects)
@@ -171,6 +190,11 @@ def pull(quiet: bool = False) -> None:
         what = core.decide(lh, sync.get(rel), sh)
         if what == "conflict" and core.EPHEMERAL and rel not in sync:
             what = "take_state"   # a fresh sandbox's own defaults (settings.json) give way to the stored setup
+        if what == "take_state" and runs_code(rel) and signed.get(rel) != sh:
+            unsigned.append(rel.removeprefix("claude/"))
+            continue
+        if what == "conflict" and resolved(rel, local, sh, sync):
+            continue                # merged by hand: the next push stores it
         if what == "take_state":
             core.write(local, core.read(stored))
             if rel.startswith("claude/projects/"):
@@ -184,6 +208,7 @@ def pull(quiet: bool = False) -> None:
             sync[rel] = sh
         elif what == "conflict":
             core.write(local + ".dc-remote", core.read(stored))
+            sync[rel + "#conflict"] = sh
             say(f"conflict: kept {local}, the stored copy is in {local}.dc-remote")
             conflicts += 1
     core.save_sync(sync)
@@ -191,6 +216,24 @@ def pull(quiet: bool = False) -> None:
         say(f"claude pull: {written} file(s) updated, {conflicts} conflict(s)")
     if code:   # whoever can write the state repo can change these: always shown
         say(f"claude pull: code from the state repo (hooks, tools): {', '.join(code)}")
+    if unsigned:   # changed by something without the age key: never run
+        say(f"claude pull: NOT applied, stored without the age key (check the state repo's "
+            f"history): {', '.join(unsigned)}")
+
+
+def trust(quiet: bool = False) -> None:
+    """Signs the stored code files as they are now (read them first: git log in the state repo)."""
+    core.ensure_state()
+    base = os.path.join(core.STATE, "claude")
+    rels = sorted("claude/" + r for r in _walk(base, ".") if not SKIP.search(r))
+    files = {r: core.file_sha(os.path.join(core.STATE, *r.split("/"))) for r in rels if runs_code(r)}
+    new = {r: s for r, s in files.items() if s and core.signed_files().get(r) != s}
+    if core.sign(new):
+        core.commit_state(f"claude: trust {len(new)} file(s)", [core.SIGNED])
+    for r in new:
+        say(f"trusted {r}")
+    if not quiet or new:
+        say(f"claude trust: {len(new)} file(s) newly signed")
 
 
 def runs_code(rel: str) -> bool:

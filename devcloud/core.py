@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import calendar
 import hashlib
+import hmac
 import io
 import json
 import os
@@ -550,6 +551,47 @@ def rotate_key() -> list[str]:
     commit_state("age key rotated", ["recipients.txt", *rels])
     os.remove(old)
     return rels
+
+
+SIGNED = "signed.json"   # state files a machine holding the age key vouched for
+
+
+def _mac_key() -> bytes:
+    """A MAC key only holders of the age key can derive (the GitHub token is not enough)."""
+    ensure_key()
+    secret = next((ln.strip() for ln in read(KEY).decode().splitlines()
+                   if ln.strip().startswith("AGE-SECRET-KEY-")), "")
+    if not secret:
+        raise Fail(f"no secret key in {KEY}")
+    return hashlib.sha256(b"devcloud signed state\0" + secret.encode()).digest()
+
+
+def _mac(files: dict, key: bytes) -> str:
+    return hmac.new(key, json.dumps(files, sort_keys=True).encode(), "sha256").hexdigest()
+
+
+def signed_files(key: bytes | None = None) -> dict[str, str]:
+    """rel -> sha of the state files vouched for; {} when the manifest is missing or forged."""
+    try:
+        d = json.loads(read(os.path.join(STATE, SIGNED)))
+        files, mac = d["files"], d["mac"]
+        key = key or _mac_key()
+    except (OSError, ValueError, KeyError, TypeError, Fail):
+        return {}
+    ok = isinstance(files, dict) and isinstance(mac, str) and hmac.compare_digest(mac, _mac(files, key))
+    return files if ok else {}
+
+
+def sign(updates: dict[str, str], key: bytes | None = None) -> bool:
+    """Vouches for rel -> sha in the manifest; True when it changed (the caller commits SIGNED)."""
+    key = key or _mac_key()
+    files = signed_files(key)
+    new = {**files, **updates}
+    if new == files and os.path.isfile(os.path.join(STATE, SIGNED)):
+        return False
+    write(os.path.join(STATE, SIGNED), json.dumps({"files": new, "mac": _mac(new, key)},
+                                                   indent=1, sort_keys=True).encode())
+    return True
 
 
 def encrypt(data: bytes) -> bytes:

@@ -25,17 +25,17 @@ jobs:
     runs-on: ${{ inputs.os }}
     timeout-minutes: 360
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           persist-credentials: false
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09  # v5.1.0
         with:
           repository: ${{ github.repository_owner }}/devcloud
           ref: ${{ inputs.ref }}
           path: .devcloud
           persist-credentials: false
       - if: inputs.artifacts_in != ''
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0  # v5.0.0
         with:
           path: ${{ inputs.artifacts_in }}
           merge-multiple: true
@@ -50,7 +50,7 @@ jobs:
           echo ".devcloud/" >> .git/info/exclude
           if [ "$RUNNER_OS" = Windows ]; then ./.devcloud/dc.cmd ci; else ./.devcloud/dc ci; fi
       - if: always() && inputs.artifacts != ''
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4  # v5.0.0
         with:
           name: dc-${{ strategy.job-index }}
           path: ${{ inputs.artifacts }}

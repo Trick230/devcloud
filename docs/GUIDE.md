@@ -41,6 +41,7 @@ The Drive scope is `drive.file`: `dc` only sees the files it uploaded itself.
 
 ```sh
 dc claude pull | push           # ~/.claude, memory and agent files (the hooks run these)
+dc claude trust                 # sign the stored hooks/tools/settings, after reading them
 dc account save NAME            # keep the signed-in account (this machine only)
 dc account use NAME             # switch without the browser (new sessions, claude --resume)
 dc report                       # the project's last web-session boot report

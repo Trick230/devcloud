@@ -28,6 +28,7 @@
   dc drive ls [--dirs|--files] [REMOTE]  /  get REMOTE [LOCAL_DIR]  /  put LOCAL REMOTE [--include P]
 
   dc claude pull|push [--quiet]   ~/.claude, memory and the projects' agent files
+  dc claude trust           vouch for the stored hooks/tools/settings (after reading them)
   dc account [save NAME | use NAME | next]
                             Claude Code accounts on this machine: save the signed-in one, switch
                             to another without the browser (settings, memory, sessions shared)
@@ -251,10 +252,10 @@ def main(argv: list[str]) -> int:
                 drive.put(p, a.items[0], a.items[1], a.include)
             return 0
         if cmd == "claude":
-            ap.add_argument("action", choices=["pull", "push"])
+            ap.add_argument("action", choices=["pull", "push", "trust"])
             ap.add_argument("--quiet", action="store_true")
             a = ap.parse_args(rest)
-            (claude.pull if a.action == "pull" else claude.push)(a.quiet)
+            {"pull": claude.pull, "push": claude.push, "trust": claude.trust}[a.action](a.quiet)
             return 0
         if cmd == "session":
             ap.add_argument("action", choices=["start", "claim", "beat", "end"])
