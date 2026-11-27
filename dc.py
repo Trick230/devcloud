@@ -43,6 +43,9 @@
   dc run --each [...] "CMD1" "CMD2"...  one job per command, in parallel
   dc brief [--in ..] [--out ..] -- COMMAND...   the same job as a task for a Claude Code
                             web session (when Actions does not fit)
+  dc gc [--all] [--dry-run]  trims the Actions history (this project; --all: devcloud and every
+                            registered project) to the newest success of each workflow, at most
+                            6; failures stay a day, dc runs never stay (dc-hook.sh end runs it)
 
   dc gpu [--long] [--gpu TYPE] JOB.json --in FILE... --out DIR [-- ARGS...]
                             one GPU job on Modal, then Kaggle, then Colab (manual); JOB.json
@@ -293,6 +296,12 @@ def main(argv: list[str]) -> int:
                 core.ensure_state()
                 core.ensure_key()
             return gpu.dispatch(core.project(), a.job, a.inp, a.out, args, a.long)
+        if cmd == "gc":
+            ap.add_argument("--all", action="store_true")
+            ap.add_argument("--dry-run", action="store_true")
+            a = ap.parse_args(rest)
+            run.gc(run.gc_repos(a.all), a.dry_run)
+            return 0
         if cmd in ("run", "brief"):
             ap.add_argument("--os", default="ubuntu-latest")
             ap.add_argument("--in", dest="inp", action="append", default=[])

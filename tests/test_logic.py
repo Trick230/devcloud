@@ -1,6 +1,7 @@
 """The pure parts: three-way merge, .env split and parse, Drive paths, Claude slugs."""
 import os
 import sys
+import time
 import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -115,6 +116,20 @@ class RunLog(unittest.TestCase):
         self.assertEqual(run.title(["./lls setup --cloud && ./lls test pal"]), "./lls test pal")
         self.assertEqual(run.title(["a && b", "a && c", "a && d"]), "b (+2)")
         self.assertEqual(run.title(["x" * 80], 10), "xxxxxxx...")
+
+    def test_prune(self):
+        def r(i, wf, concl, hours_ago, status="completed"):
+            t = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(now - hours_ago * 3600))
+            return {"id": i, "workflow_id": wf, "path": f".github/workflows/w{wf}.yml",
+                    "status": status, "conclusion": concl, "created_at": t}
+        now = 1_800_000_000
+        runs = [r(1, 1, "success", 1), r(2, 1, "success", 2),           # newest success of w1 stays
+                r(3, 2, "failure", 2), r(4, 2, "failure", 30),          # failures: a day
+                r(5, 3, "cancelled", 1), r(6, 3, None, 0, "in_progress"),
+                {**r(7, 99, "success", 1), "path": ".github/workflows/dc.yml"}]  # dc runs never stay
+        runs += [r(10 + w, w, "success", 3) for w in range(4, 10)]        # 6 more workflows: cap
+        gone = run.prune(runs, now, keep=6)
+        self.assertEqual(sorted(gone), [2, 4, 5, 7, 19])
 
 
 class Account(unittest.TestCase):

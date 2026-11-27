@@ -8,6 +8,7 @@ or logs. Every command of --each is a job of its own, in parallel.
 """
 from __future__ import annotations
 
+import calendar
 import json
 import os
 import re
@@ -110,6 +111,63 @@ def title(commands: list[str], width: int = 60) -> str:
     if len(s) > width:
         s = s[:width - 3] + "..."
     return s + (f" (+{len(commands) - 1})" if len(commands) > 1 else "")
+
+
+# ---------------------------------------------------------------- Actions history
+
+KEEP = 6              # runs a repo shows at most: the newest success of each workflow
+FAILED_DAYS = 1.0     # a failed run stays this long, to read its log
+
+
+def prune(runs: list[dict], now: float, keep: int = KEEP) -> list[int]:
+    """The runs to delete (API run objects): everything finished except the newest success of
+    each workflow other than dc.yml (at most keep of them, newest first) and failures younger
+    than FAILED_DAYS. Running and queued runs are left alone."""
+    done = sorted((r for r in runs if r.get("status") == "completed"),
+                  key=lambda r: r["created_at"], reverse=True)
+    kept, seen = set(), set()
+    for r in done:
+        wf = r.get("path", "").split("@")[0]
+        if r.get("conclusion") == "success" and not wf.endswith("/" + WORKFLOW) \
+                and r["workflow_id"] not in seen and len(seen) < keep:
+            seen.add(r["workflow_id"])
+            kept.add(r["id"])
+        elif r.get("conclusion") == "failure" and now - _epoch(r["created_at"]) < FAILED_DAYS * 86400:
+            kept.add(r["id"])
+    return [r["id"] for r in done if r["id"] not in kept]
+
+
+def _epoch(stamp: str) -> float:
+    return calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ"))
+
+
+def gc_repos(every: bool) -> list[str]:
+    """The current project's repo; with every, devcloud's and every registered project's."""
+    p = core.project()
+    repos = [p.repo] if p and p.repo else []
+    if every:
+        repos.append(f"{core.owner()}/devcloud")
+        repos += [e["repo"] for e in core.registry().values() if e.get("repo")]
+    return list(dict.fromkeys(repos))
+
+
+def gc(repos: list[str], dry: bool) -> int:
+    """Trims each repo's Actions history to what prune keeps (`dc gc`)."""
+    total = 0
+    for repo in repos:
+        r = core.gh("api", "--paginate", f"repos/{repo}/actions/runs?per_page=100",
+                    "-q", ".workflow_runs[]", check=False)
+        if r.returncode:
+            say(f"{repo}: runs not readable, skipped")
+            continue
+        runs = [json.loads(s) for s in core.out(r).splitlines() if s.strip()]
+        ids = prune(runs, time.time())
+        n = 0 if dry else sum(core.gh("api", "-X", "DELETE", f"repos/{repo}/actions/runs/{i}",
+                                      check=False).returncode == 0 for i in ids)
+        if ids:
+            say(f"{repo}: {len(runs)} runs, {'would delete' if dry else 'deleted'} {len(ids) if dry else n}")
+        total += n
+    return total
 
 
 _STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")

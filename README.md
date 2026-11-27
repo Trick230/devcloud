@@ -101,7 +101,9 @@ dc init                    # adds .github/workflows/dc.yml to the project (commi
 dc run -- ./lls test all
 dc run --in refs:in --out out:results -- ./lls batch in out
 dc run --each "./lls test pal" "./lls test tempo"   # on finish: each job's result and last 15 lines
-                           # a run that succeeds is deleted from the Actions history; failed ones stay
+                           # a run that succeeds is deleted from the Actions history; failed ones stay a day
+dc gc --all [--dry-run]    # Actions history of devcloud and every project: the newest success of each
+                           # workflow (at most 6), failures for a day; the hook runs it at session end
 dc brief -- ./lls batch in out
 
 dc gpu gpu/separate.json --in src.flac --out stems/              # Modal -> Kaggle -> Colab
