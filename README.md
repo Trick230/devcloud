@@ -8,8 +8,6 @@
 ![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-0078d4)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-[Installation](#installation) · [Usage](#usage) · [Security](#security) · [Issues](https://github.com/Trick230/devcloud/issues)
-
 </div>
 
 `dc` gives Windows and Linux PCs, cloud VMs, Claude Code web sessions and GitHub Actions
