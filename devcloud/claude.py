@@ -137,11 +137,20 @@ def resolved(rel: str, local: str, sh: str | None, sync: dict) -> bool:
     return sync.get(rel + "#conflict") == sh and not os.path.exists(local + ".dc-remote")
 
 
+def _key() -> bytes | None:
+    try:
+        return core.mac_key()
+    except core.Fail as e:
+        say(f"claude: no age key, nothing signed or taken from the state repo ({e})")
+        return None
+
+
 def push(quiet: bool = False) -> None:
     core.ensure_state()
     projects = core.known_projects()
     sync = core.load_sync()
-    changed, conflicts, code = [], [], {}
+    key = _key()
+    changed, conflicts = [], []
     for rel, local in sorted(pairs(projects).items()):
         stored = os.path.join(core.STATE, *rel.split("/"))
         lh, sh = core.file_sha(local), core.file_sha(stored)
@@ -157,13 +166,10 @@ def push(quiet: bool = False) -> None:
             sync[rel] = lh
         elif what == "conflict":
             conflicts.append(rel)
-        if runs_code(rel) and what in ("take_local", "same") and lh:
-            code[rel] = lh          # this machine's own copy: vouched for
-    try:
-        if core.sign(code):
-            changed.append(core.SIGNED)
-    except core.Fail as e:          # the files still sync; other machines just won't run them
-        say(f"claude push: code files not signed ({e})")
+        if key and what in ("take_local", "same") and lh:
+            sig = core.sign(rel, key)        # this machine's own copy: vouched for
+            if sig:
+                changed.append(sig)
     if changed:
         core.commit_state(f"claude: {len(changed)} file(s)", changed)
     core.save_sync(sync)
@@ -177,9 +183,9 @@ def pull(quiet: bool = False) -> None:
     core.ensure_state()
     projects = {p.name: p for p in core.known_projects()}
     sync = core.load_sync()
+    key = _key()
     base = os.path.join(core.STATE, "claude")
     written, conflicts, code, unsigned = 0, 0, [], []
-    signed = core.signed_files()
     for rel in sorted("claude/" + r for r in _walk(base, ".") if not SKIP.search(r)):
         rel = rel.replace("claude/./", "claude/")
         local = _from_state(rel, projects)
@@ -190,7 +196,7 @@ def pull(quiet: bool = False) -> None:
         what = core.decide(lh, sync.get(rel), sh)
         if what == "conflict" and core.EPHEMERAL and rel not in sync:
             what = "take_state"   # a fresh sandbox's own defaults (settings.json) give way to the stored setup
-        if what == "take_state" and runs_code(rel) and signed.get(rel) != sh:
+        if what in ("take_state", "conflict") and not (key and core.signed(rel, key)):
             unsigned.append(rel.removeprefix("claude/"))
             continue
         if what == "conflict" and resolved(rel, local, sh, sync):
@@ -214,26 +220,11 @@ def pull(quiet: bool = False) -> None:
     core.save_sync(sync)
     if not quiet or written or conflicts:
         say(f"claude pull: {written} file(s) updated, {conflicts} conflict(s)")
-    if code:   # whoever can write the state repo can change these: always shown
+    if code:   # hooks, tools, settings: always shown
         say(f"claude pull: code from the state repo (hooks, tools): {', '.join(code)}")
-    if unsigned:   # changed by something without the age key: never run
-        say(f"claude pull: NOT applied, stored without the age key (check the state repo's "
-            f"history): {', '.join(unsigned)}")
-
-
-def trust(quiet: bool = False) -> None:
-    """Signs the stored code files as they are now (read them first: git log in the state repo)."""
-    core.ensure_state()
-    base = os.path.join(core.STATE, "claude")
-    rels = sorted("claude/" + r for r in _walk(base, ".") if not SKIP.search(r))
-    files = {r: core.file_sha(os.path.join(core.STATE, *r.split("/"))) for r in rels if runs_code(r)}
-    new = {r: s for r, s in files.items() if s and core.signed_files().get(r) != s}
-    if core.sign(new):
-        core.commit_state(f"claude: trust {len(new)} file(s)", [core.SIGNED])
-    for r in new:
-        say(f"trusted {r}")
-    if not quiet or new:
-        say(f"claude trust: {len(new)} file(s) newly signed")
+    if unsigned:   # stored by something without the age key: never applied
+        say(f"claude pull: NOT applied, stored without the age key (read the state repo's history; "
+            f"`dc trust` if it was you): {', '.join(unsigned)}")
 
 
 def runs_code(rel: str) -> bool:

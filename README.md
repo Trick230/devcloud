@@ -108,9 +108,10 @@ Every command group, accounts, and the Claude Code web environment setup:
 - `dc drive push` of a folder never takes `.env` files, keys, `.git/` or tool folders, and
   `dc drive pull` never writes them.
 - `dc claude pull` writes only the paths `dc claude push` stores, and names every hook, tool
-  or settings file it brings. Those files are applied only when a machine holding the age key
-  stored them (a signed manifest), so the GitHub token alone cannot plant a hook;
-  `dc claude trust` signs the stored ones after you have read them.
+  or settings file it brings. Every file (hooks, CLAUDE.md, memory) is applied only when a
+  machine holding the age key stored it, so the GitHub token alone cannot plant one;
+  `dc trust` signs what is stored after you have read it. Stored `.env` files are signed too:
+  age lets anyone with the public key encrypt one.
 - The GitHub token goes to github.com only. Workflows run with a read-only `GITHUB_TOKEN`
   that is not left in the checkout, actions are pinned to commits, and the runner's `.env` is
   deleted before outputs upload.

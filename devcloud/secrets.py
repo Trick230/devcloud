@@ -42,7 +42,13 @@ def _state_file(name: str) -> str:
 
 def state_text(name: str) -> str | None:
     p = _state_file(name)
-    return core.decrypt(core.read(p)).decode() if os.path.isfile(p) else None
+    if not os.path.isfile(p):
+        return None
+    rel = os.path.relpath(p, core.STATE).replace(os.sep, "/")
+    if not core.signed(rel, core.mac_key()):
+        raise Fail(f"{rel} was stored without the age key: read the state repo's history "
+                   "(`dc trust` if it was you)")
+    return core.decrypt(core.read(p)).decode()
 
 
 def _env_path(p: core.Project) -> str:
@@ -63,15 +69,15 @@ def _hash(text: str | None) -> str | None:
 
 
 def store(name: str, text: str) -> None:
-    rel = os.path.relpath(_state_file(name), core.STATE)
+    rel = os.path.relpath(_state_file(name), core.STATE).replace(os.sep, "/")
     rec = core.read(core.recipients())
     core.write(_state_file(name), core.encrypt(text.encode()))
-    core.commit_state(f"secrets {name}", [rel])
+    core.commit_state(f"secrets {name}", [rel, *filter(None, [core.sign(rel, core.mac_key())])])
     if core.read(core.recipients()) != rec:
         # a key rotation came in with the pull: this file went out to the old key, redo it
         core.ensure_key()
         core.write(_state_file(name), core.encrypt(text.encode()))
-        core.commit_state(f"secrets {name} (new key)", [rel])
+        core.commit_state(f"secrets {name} (new key)", [rel, *filter(None, [core.sign(rel, core.mac_key())])])
 
 
 def pull(p: core.Project, force: bool = False) -> None:

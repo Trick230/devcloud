@@ -52,4 +52,5 @@ def main():
     # the job's own exit code goes to gpu.py in a file: a failed job is not a provider failure
     pathlib.Path(os.environ["DC_GPU_STATUS"]).write_text(json.dumps({"rc": res.get("rc", 0)}))
     for n, b in res.get("files", {}).items():
-        (out / n).write_bytes(b)
+        if n not in ("", ".", "..") and "/" not in n and "\\" not in n and ":" not in n:
+            (out / n).write_bytes(b)        # names come from the remote side: never a path

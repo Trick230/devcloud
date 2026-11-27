@@ -529,6 +529,8 @@ def rotate_key() -> list[str]:
     ensure_key()
     rels = [f for f in out(git("ls-files", "*.age", cwd=STATE)).splitlines() if f]
     plain = {f: decrypt(read(os.path.join(STATE, f))) for f in rels}
+    old_mac = mac_key()
+    vouched = [f for f in out(git("ls-files", cwd=STATE)).splitlines() if f and signed(f, old_mac)]
     new, old = KEY + ".new", os.path.join(DC, "age-key.old.txt")
     if os.path.exists(new) or os.path.exists(old):
         raise Fail(f"{new} or {old} left by an unfinished rotation: check which key opens the "
@@ -548,50 +550,72 @@ def rotate_key() -> list[str]:
     os.replace(new, KEY)
     if not WIN:
         os.chmod(KEY, 0o600)
-    commit_state("age key rotated", ["recipients.txt", *rels])
+    new_mac = mac_key(KEY)
+    sigs = [s for s in (sign(f, new_mac) for f in vouched) if s]
+    commit_state("age key rotated", ["recipients.txt", *rels, *sigs])
     os.remove(old)
     return rels
 
 
-SIGNED = "signed.json"   # state files a machine holding the age key vouched for
+SIGS = "sigs"   # sigs/<rel>.sig: a machine holding the age key stored <rel> as it is now
 
 
-def _mac_key() -> bytes:
-    """A MAC key only holders of the age key can derive (the GitHub token is not enough)."""
-    ensure_key()
-    secret = next((ln.strip() for ln in read(KEY).decode().splitlines()
+def mac_key(path: str | None = None) -> bytes:
+    """A MAC key only holders of the age key can derive (the GitHub token is not enough, and
+    age itself lets anyone with the public key encrypt)."""
+    if path is None:
+        ensure_key()
+    secret = next((ln.strip() for ln in read(path or KEY).decode().splitlines()
                    if ln.strip().startswith("AGE-SECRET-KEY-")), "")
     if not secret:
-        raise Fail(f"no secret key in {KEY}")
+        raise Fail(f"no secret key in {path or KEY}")
     return hashlib.sha256(b"devcloud signed state\0" + secret.encode()).digest()
 
 
-def _mac(files: dict, key: bytes) -> str:
-    return hmac.new(key, json.dumps(files, sort_keys=True).encode(), "sha256").hexdigest()
+def _sig_file(rel: str) -> str:
+    return os.path.join(STATE, SIGS, *rel.split("/")) + ".sig"
 
 
-def signed_files(key: bytes | None = None) -> dict[str, str]:
-    """rel -> sha of the state files vouched for; {} when the manifest is missing or forged."""
+def _mac(rel: str, digest: str, key: bytes) -> str:
+    return hmac.new(key, f"{rel}\0{digest}".encode(), "sha256").hexdigest()
+
+
+def signed(rel: str, key: bytes) -> bool:
+    """The state file rel is as a machine holding the age key stored it."""
+    digest = file_sha(os.path.join(STATE, *rel.split("/")))
     try:
-        d = json.loads(read(os.path.join(STATE, SIGNED)))
-        files, mac = d["files"], d["mac"]
-        key = key or _mac_key()
-    except (OSError, ValueError, KeyError, TypeError, Fail):
-        return {}
-    ok = isinstance(files, dict) and isinstance(mac, str) and hmac.compare_digest(mac, _mac(files, key))
-    return files if ok else {}
-
-
-def sign(updates: dict[str, str], key: bytes | None = None) -> bool:
-    """Vouches for rel -> sha in the manifest; True when it changed (the caller commits SIGNED)."""
-    key = key or _mac_key()
-    files = signed_files(key)
-    new = {**files, **updates}
-    if new == files and os.path.isfile(os.path.join(STATE, SIGNED)):
+        mac = read(_sig_file(rel)).decode().strip()
+    except (OSError, UnicodeDecodeError):
         return False
-    write(os.path.join(STATE, SIGNED), json.dumps({"files": new, "mac": _mac(new, key)},
-                                                   indent=1, sort_keys=True).encode())
-    return True
+    return bool(digest) and hmac.compare_digest(mac, _mac(rel, digest or "", key))
+
+
+def sign(rel: str, key: bytes) -> str | None:
+    """Vouches for the state file rel as it is now; the signature's state path when it changed."""
+    digest = file_sha(os.path.join(STATE, *rel.split("/")))
+    if not digest or signed(rel, key):
+        return None
+    write(_sig_file(rel), _mac(rel, digest, key).encode() + b"\n")
+    return f"{SIGS}/{rel}.sig"
+
+
+def unsigned_files(key: bytes) -> list[str]:
+    """Tracked state files without a valid signature (signatures, sessions and reports aside)."""
+    files = out(git("ls-files", cwd=STATE)).splitlines()
+    return [f for f in files if f and not f.startswith((f"{SIGS}/", "sessions/", "reports/"))
+            and f not in ("README.md", ".gitignore") and not signed(f, key)]
+
+
+def trust() -> list[str]:
+    """Signs every state file as it is now: once, after reading them (git log in the state
+    repo), when signatures are first introduced or something was stored without the key."""
+    ensure_state()
+    key = mac_key()
+    rels = unsigned_files(key)
+    sigs = [s for s in (sign(r, key) for r in rels) if s]
+    if sigs:
+        commit_state(f"trust {len(sigs)} file(s)", sigs)
+    return rels
 
 
 def encrypt(data: bytes) -> bytes:

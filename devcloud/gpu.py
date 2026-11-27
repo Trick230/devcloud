@@ -216,7 +216,13 @@ def _kaggle_job(exe, env, s, data, kern, res, ds, kn, nonce, out) -> None:
     if got.get("rc"):
         raise Fail(f"kaggle: the job failed ({got['rc']}); not retried elsewhere")
     for n in got["files"]:
-        shutil.move(os.path.join(res, n), os.path.join(out, n))
+        if flat(n):                     # names come from the remote side: never a path
+            shutil.move(os.path.join(res, n), os.path.join(out, n))
+
+
+def flat(name: object) -> bool:
+    return (isinstance(name, str) and name not in ("", ".", "..") and "/" not in name
+            and "\\" not in name and ":" not in name)
 
 
 def _kaggle_wait(exe, env, args, ok, bad, timeout) -> None:
