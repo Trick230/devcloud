@@ -121,12 +121,41 @@ def branches(root: str) -> list[str]:
     return msgs
 
 
+SANDBOX_AUTHORS = ("", "claude")   # a web sandbox's default git identity (Claude <noreply@anthropic.com>)
+
+
+def identity(name: str, login: str, uid: str, env: dict) -> tuple[str, str] | None:
+    """The git identity a web session should commit as: DC_GIT_NAME/DC_GIT_EMAIL, else the
+    token's GitHub account (its noreply address, which GitHub attributes to it); None when the
+    sandbox's identity was already replaced or the account is unknown."""
+    if name.strip().lower() not in SANDBOX_AUTHORS or not (login or env.get("DC_GIT_NAME")):
+        return None
+    return (env.get("DC_GIT_NAME") or login,
+            env.get("DC_GIT_EMAIL") or f"{uid}+{login}@users.noreply.github.com")
+
+
+def git_identity() -> None:
+    """Web: commits go out as the GitHub account, not as the sandbox's Claude identity."""
+    g = lambda *a: core.out(core.run(["git", "config", "--global", *a], check=False))  # noqa: E731
+    name = g("user.name")
+    if name.strip().lower() not in SANDBOX_AUTHORS:
+        return
+    r = core.gh("api", "user", "-q", '.login + " " + (.id|tostring)', check=False)
+    login, _, uid = core.out(r).partition(" ") if r.returncode == 0 else ("", "", "")
+    who = identity(name, login, uid, dict(os.environ))
+    if who:
+        g("user.name", who[0])
+        g("user.email", who[1])
+
+
 def start(sid: str, source: str = "startup") -> list[str]:
     """source: the SessionStart source; a resume, /clear or compaction does not touch git.
     DC_STATE_PULLED=1: the caller has just pulled the state repo (dc-hook.sh runs dc claude pull
     first), so reading it needs no second pull (~1 s). An environment variable, not a flag, so a
     newer hook still works with an older dc."""
     pulled = os.environ.get("DC_STATE_PULLED") == "1"
+    if os.environ.get("CLAUDE_CODE_REMOTE") and source == "startup":
+        git_identity()
     p = core.project()
     if not p:
         return []

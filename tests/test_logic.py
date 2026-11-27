@@ -8,6 +8,14 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from devcloud import account, claude, core, drive, gpu, run, secrets, session  # noqa: E402
 
 
+class GitIdentity(unittest.TestCase):
+    def test_identity(self):
+        self.assertEqual(session.identity("Claude", "me", "7", {}), ("me", "7+me@users.noreply.github.com"))
+        self.assertEqual(session.identity("", "me", "7", {"DC_GIT_EMAIL": "a@b.c"}), ("me", "a@b.c"))
+        self.assertIsNone(session.identity("Someone", "me", "7", {}))   # already set: kept
+        self.assertIsNone(session.identity("Claude", "", "", {}))       # no account: left alone
+
+
 class GpuRelay(unittest.TestCase):
     def test_command(self):
         c = gpu.relay_command("gpu/job.json", ["--model", "a b"], True, "A10G")
