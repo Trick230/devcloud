@@ -218,7 +218,25 @@ class Session(unittest.TestCase):
             self.assertIn("diverged", msgs[0])
             self.assertFalse(os.path.exists(os.path.join(pc, "web2")))
             sh("cherry-pick", "origin/claude/a", cwd=pc)                # integrated by hand
-            self.assertEqual(session.branches(pc), [])
+            self.assertEqual(session.branches(pc), [])                      # not pushed yet: stays
+            sh("push", "-q", "origin", "master", cwd=pc)
+            msgs = session.branches(pc)                                     # pushed: deleted
+            self.assertEqual(len(msgs), 1)
+            self.assertIn("deleted the remote branch claude/a", msgs[0])
+            sh("fetch", "-q", cwd=w)
+            sh("checkout", "-q", "-B", "t", "origin/master", cwd=w)
+            commit(w, "tmp")
+            sh("rm", "-q", "tmp", cwd=w)
+            sh("commit", "-q", "-m", "undo tmp", cwd=w)
+            sh("push", "-q", "origin", "HEAD:claude/b", cwd=w)               # no net change: deleted
+            commit(w, "web3")
+            sh("push", "-q", "origin", "HEAD:claude/c", cwd=w)               # new work: stays
+            msgs = session.branches(pc)
+            self.assertTrue(any("deleted the remote branch claude/b" in m for m in msgs), msgs)
+            self.assertFalse(any("claude/c" in m and "deleted" in m for m in msgs), msgs)
+            refs = sh("ls-remote", "--heads", "origin", cwd=pc).stdout.decode()
+            self.assertNotIn("claude/b", refs)
+            self.assertIn("claude/c", refs)
 
 
 if __name__ == "__main__":

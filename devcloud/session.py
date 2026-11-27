@@ -68,8 +68,21 @@ def _claim(p: core.Project, sid: str) -> None:
     core.commit_state(f"session: {p.name} {where()}", [rel])
 
 
+def merged(g, b: str, up: str) -> bool:
+    """b's work is already in up (the pushed branch, not just this clone): contained, every
+    commit there by rebase or cherry-pick, or no net change at all (commits that undo each other)."""
+    if g("merge-base", "--is-ancestor", b, up).returncode == 0:
+        return True
+    r = g("cherry", up, b)
+    if r.returncode == 0 and not any(ln.startswith("+") for ln in core.out(r).splitlines()):
+        return True
+    base = core.out(g("merge-base", up, b))
+    return bool(base) and g("diff", "--quiet", base, b).returncode == 0
+
+
 def branches(root: str) -> list[str]:
-    """A PC's checked-out branch fast-forwarded to origin/claude/* (web work); diverged ones reported."""
+    """A PC's checked-out branch fast-forwarded to origin/claude/* (web work); diverged ones reported;
+    the ones whose work is already in the pushed branch deleted from origin (the PC can, the web can't)."""
     g = lambda *a: core.git(*a, cwd=root, check=False)
     head = core.out(g("rev-parse", "--abbrev-ref", "HEAD"))
     if not head or head == "HEAD" or head.startswith("claude/"):
@@ -78,7 +91,14 @@ def branches(root: str) -> list[str]:
         return []
     msgs = []
     refs = core.out(g("for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/claude/")).split()
+    up = f"origin/{head}"
+    has_up = g("rev-parse", "-q", "--verify", up).returncode == 0
     for b in refs:
+        if has_up and merged(g, b, up):
+            name = b.removeprefix("origin/")
+            if g("push", "-q", "origin", "--delete", name).returncode == 0:
+                msgs.append(f"deleted the remote branch {name}: its work is already in {up}.")
+                continue
         n = core.out(g("rev-list", "--count", f"HEAD..{b}"))
         if n in ("", "0"):
             continue
