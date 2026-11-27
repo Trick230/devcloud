@@ -21,6 +21,7 @@ import tarfile
 import time
 import urllib.request
 import zipfile
+from functools import lru_cache
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WIN = os.name == "nt"
@@ -105,6 +106,36 @@ def read(path: str) -> bytes:
         return f.read()
 
 
+@lru_cache(maxsize=None)
+def _user_sid() -> str:
+    exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "whoami.exe")
+    r = subprocess.run([exe, "/user", "/fo", "csv", "/nh"], capture_output=True, text=True)
+    sid = r.stdout.strip().rsplit(",", 1)[-1].strip().strip('"')
+    if r.returncode != 0 or not sid.startswith("S-1-"):
+        raise Fail(f"whoami /user: no SID ({r.stderr.strip()[-200:]})")
+    return sid
+
+
+def restrict(path: str) -> None:
+    """Windows: only this user (and SYSTEM) may open path. A file under D:\\ otherwise inherits
+    read for every local user and write for every signed-in one; chmod does nothing there."""
+    if not WIN or not os.path.exists(path):
+        return
+    exe = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "icacls.exe")
+    inh = "(OI)(CI)" if os.path.isdir(path) else ""   # a folder: what it holds inherits it
+    r = subprocess.run([exe, path, "/inheritance:r", "/grant:r", f"*{_user_sid()}:{inh}F",
+                        "/grant:r", f"*S-1-5-18:{inh}F"], capture_output=True, text=True)
+    if r.returncode != 0:
+        raise Fail(f"icacls {path}: {(r.stdout + r.stderr).strip()[-200:]}")
+
+
+def private_files() -> list[str]:
+    """The secrets dc keeps on this machine: age key, GitHub token, saved accounts, .env files."""
+    files = [DC]   # the key, token, accounts and state repo inherit from it
+    files += [os.path.join(p.root, ".env") for p in known_projects()]
+    return [f for f in dict.fromkeys(files) if os.path.exists(f)]
+
+
 def write(path: str, data: bytes, private: bool = False) -> None:
     """Writes a new file next to the old one and swaps it in: a reader that has the old one
     open (a running hook script, which sh reads as it runs) keeps reading the old content."""
@@ -115,6 +146,8 @@ def write(path: str, data: bytes, private: bool = False) -> None:
         os.remove(tmp)
     with os.fdopen(os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0),
                            0o600 if private else 0o666), "wb") as f:
+        if private:
+            restrict(tmp)               # before a byte of the secret is in it
         f.write(data)
     if not WIN:
         mode = 0o600 if private else (os.stat(path).st_mode & 0o7777 if os.path.exists(path) else None)
@@ -124,6 +157,8 @@ def write(path: str, data: bytes, private: bool = False) -> None:
         os.replace(tmp, path)
     except OSError:   # Windows refuses to replace a file another process holds open
         os.remove(tmp)
+        if private:
+            restrict(path)
         with open(path, "wb") as f:
             f.write(data)
 
@@ -512,6 +547,8 @@ def ensure_key() -> None:
         raise Fail(f"no age key on this machine: copy {KEY} from another one (`dc key` prints it) "
                    "or set DC_AGE_KEY")
     say(f"new age key in {KEY}: keep a copy somewhere safe (`dc key` prints it)")
+    os.makedirs(DC, exist_ok=True)
+    restrict(DC)                 # the new key inherits this user's ACL from the first byte
     run([tool("age-keygen"), "-o", KEY])
     if not WIN:
         os.chmod(KEY, 0o600)
@@ -536,6 +573,7 @@ def rotate_key() -> list[str]:
         raise Fail(f"{new} or {old} left by an unfinished rotation: check which key opens the "
                    "state repo's files before removing either")
     run([tool("age-keygen"), "-o", new])
+    restrict(new)
     pub = out(run([tool("age-keygen"), "-y", new]))
     try:
         write(recipients(), pub.encode() + b"\n")

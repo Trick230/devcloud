@@ -116,6 +116,8 @@ def setup(ci: bool, web: bool = False, preps: list[str] | None = None) -> int:
     p = core.project()
     if p:
         core.register(p)
+    for f in core.private_files():   # files from before dc restricted them (Windows ACLs)
+        core.restrict(f)
     return check()
 
 
