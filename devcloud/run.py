@@ -60,12 +60,15 @@ def dispatch(p: core.Project, commands: list[str], runner: str, inputs: list[str
              artifacts: list[str], wait: bool) -> int:
     if not p.repo:
         raise Fail(f"{p.name}: no GitHub origin")
-    if not os.path.isfile(os.path.join(p.root, ".github", "workflows", WORKFLOW)):
+    wf = os.path.join(p.root, ".github", "workflows", WORKFLOW)
+    if not os.path.isfile(wf):
         raise Fail(f"no .github/workflows/{WORKFLOW} in {p.name}: dc init")
     branch, tag = _branch(p), uuid.uuid4().hex[:8]
     fields = {"id": tag, "commands": json.dumps(commands), "os": runner,
               "drive_in": "\n".join(inputs), "drive_out": "\n".join(outputs),
               "artifacts": "\n".join(artifacts)}
+    if b"inputs.title" in core.read(wf):   # a dc.yml older than the short run name has no title input
+        fields["title"] = title(commands)
     args = ["workflow", "run", WORKFLOW, "-R", p.repo, "--ref", branch]
     for k, v in fields.items():
         args += ["-f", f"{k}={v}"]
@@ -91,8 +94,22 @@ def dispatch(p: core.Project, commands: list[str], runner: str, inputs: list[str
         dst = os.path.join(p.root, "dc-out", tag)
         core.gh("run", "download", str(run_id), "-R", p.repo, "-D", dst, check=False)
         say(f"artifacts in {dst}")
-    say(f"run {'succeeded' if rc == 0 else 'failed'}: {url}")
+    if rc:
+        say(f"run failed: {url}")
+    elif core.gh("run", "delete", str(run_id), "-R", p.repo, check=False).returncode == 0:
+        say("run succeeded (deleted from the Actions history; failed runs are kept)")
+    else:
+        say(f"run succeeded: {url}")
     return rc
+
+
+def title(commands: list[str], width: int = 60) -> str:
+    """The run's short name: the first command without its setup prefix (`a && b` -> b),
+    cut to width, and how many more commands run beside it."""
+    s = commands[0].split("&&")[-1].strip() if commands else ""
+    if len(s) > width:
+        s = s[:width - 3] + "..."
+    return s + (f" (+{len(commands) - 1})" if len(commands) > 1 else "")
 
 
 _STAMP = re.compile(r"^\ufeff?\d{4}-\d\d-\d\dT[\d:.]+Z ?")

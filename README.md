@@ -101,6 +101,7 @@ dc init                    # adds .github/workflows/dc.yml to the project (commi
 dc run -- ./lls test all
 dc run --in refs:in --out out:results -- ./lls batch in out
 dc run --each "./lls test pal" "./lls test tempo"   # on finish: each job's result and last 15 lines
+                           # a run that succeeds is deleted from the Actions history; failed ones stay
 dc brief -- ./lls batch in out
 
 dc gpu gpu/separate.json --in src.flac --out stems/              # Modal -> Kaggle -> Colab

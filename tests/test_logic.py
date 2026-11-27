@@ -111,6 +111,11 @@ class RunLog(unittest.TestCase):
         self.assertEqual(run.log_tail(log, 3), ["line 17", "line 18", "line 19"])
         self.assertEqual(run.log_tail("a\nb\nc", 2), ["b", "c"])   # failed before the command
 
+    def test_title(self):
+        self.assertEqual(run.title(["./lls setup --cloud && ./lls test pal"]), "./lls test pal")
+        self.assertEqual(run.title(["a && b", "a && c", "a && d"]), "b (+2)")
+        self.assertEqual(run.title(["x" * 80], 10), "xxxxxxx...")
+
 
 class Account(unittest.TestCase):
     def test_switch(self):

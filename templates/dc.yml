@@ -1,7 +1,7 @@
 # devcloud (https://github.com/OWNER/devcloud): `dc run` dispatches this; pinned to one
 # devcloud commit (`dc init` again moves the pin to the current one)
 name: dc
-run-name: dc ${{ inputs.id }} ${{ inputs.commands }}
+run-name: dc ${{ inputs.id }} ${{ inputs.title || inputs.commands }}
 on:
   workflow_dispatch:
     inputs:
@@ -11,6 +11,7 @@ on:
       drive_in: {default: ""}
       drive_out: {default: ""}
       artifacts: {default: ""}
+      title: {default: ""}   # the run's short name (dc run sets it)
   workflow_call:   # the project's own workflows reuse it: `uses: ./.github/workflows/dc.yml`
     inputs:
       id: {type: string, default: ""}
