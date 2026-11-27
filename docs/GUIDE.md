@@ -30,7 +30,7 @@ dc key rotate                   # new age key, every stored secret re-encrypted
 
 ```sh
 dc drive login ID SECRET        # once, with your own OAuth client (Desktop app, published)
-dc drive push media/            # project files -> Drive, recorded in the manifest
+dc drive push media/            # project files -> Drive, recorded in the manifest (no .env, keys, .git/)
 dc drive pull                   # everything in the manifest, verified by sha256
 dc drive ls refs                # also: get REMOTE [DIR], put LOCAL REMOTE, forget PATH
 ```

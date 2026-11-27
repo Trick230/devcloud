@@ -143,11 +143,28 @@ def _rel(p: core.Project, path: str) -> str:
     return clean(rel)
 
 
+NEVER_DIRS = {".git", ".dc", ".lls", ".claude", ".agents", ".venv", "venv", "__pycache__",
+              "node_modules"}
+
+
+def private(name: str) -> bool:
+    """Files a folder push never takes: .env and its variants, keys."""
+    return name == ".env" or name.startswith(".env.") or name.endswith((".pem", ".key"))
+
+
+def walk(path: str) -> list[str]:
+    files = []
+    for d, ds, fs in os.walk(path):
+        ds[:] = [x for x in ds if x not in NEVER_DIRS]
+        files += [os.path.join(d, f) for f in fs if not private(f)]
+    return files
+
+
 def push(p: core.Project, paths: list[str]) -> None:
     files = []
     for path in paths:
         if os.path.isdir(path):
-            files += [os.path.join(d, f) for d, _, fs in os.walk(path) for f in fs]
+            files += walk(path)
         elif os.path.isfile(path):
             files.append(path)
         else:

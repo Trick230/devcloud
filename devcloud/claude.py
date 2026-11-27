@@ -141,7 +141,7 @@ def pull(quiet: bool = False) -> None:
     projects = {p.name: p for p in core.known_projects()}
     sync = core.load_sync()
     base = os.path.join(core.STATE, "claude")
-    written, conflicts = 0, 0
+    written, conflicts, code = 0, 0, []
     for rel in sorted("claude/" + r for r in _walk(base, ".") if not SKIP.search(r)):
         rel = rel.replace("claude/./", "claude/")
         local = _from_state(rel, projects)
@@ -159,6 +159,8 @@ def pull(quiet: bool = False) -> None:
                 _exclude(projects[parts[2]].root, "/".join(parts[3:]))
             sync[rel] = sh
             written += 1
+            if runs_code(rel):
+                code.append(rel.removeprefix("claude/"))
         elif what == "same":
             sync[rel] = sh
         elif what == "conflict":
@@ -168,3 +170,10 @@ def pull(quiet: bool = False) -> None:
     core.save_sync(sync)
     if not quiet or written or conflicts:
         say(f"claude pull: {written} file(s) updated, {conflicts} conflict(s)")
+    if code:   # whoever can write the state repo can change these: always shown
+        say(f"claude pull: code from the state repo (hooks, tools): {', '.join(code)}")
+
+
+def runs_code(rel: str) -> bool:
+    name = rel.rsplit("/", 1)[-1]
+    return name == "settings.json" or "/tools/" in rel or "/hooks/" in rel

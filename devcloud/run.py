@@ -228,7 +228,8 @@ def ci() -> int:
     for k, v in env.items():
         if len(v) >= 4 and not k.endswith(("_TYPE", "_SCOPE")):
             for part in v.splitlines():
-                print(f"::add-mask::{part}", flush=True)
+                if len(part.strip()) >= 4:       # a lone "}" would mask every brace in the log
+                    print(f"::add-mask::{part.strip()}", flush=True)
     os.environ.update(env)
     core.setup_tools()                           # a fresh runner: age, gh, rclone
     p = core.need_project()

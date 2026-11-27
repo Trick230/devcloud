@@ -35,9 +35,11 @@ def job(files: dict, args: list) -> dict:
     i, o = tempfile.mkdtemp(), tempfile.mkdtemp()
     for n, b in files.items():
         pathlib.Path(i, n).write_bytes(b)
-    subprocess.check_call([sys.executable, spec["script"], i, o, *args], cwd=JOB)
-    return {n: pathlib.Path(o, n).read_bytes() for n in os.listdir(o)
-            if pathlib.Path(o, n).is_file()}
+    rc = subprocess.call([sys.executable, spec["script"], i, o, *args], cwd=JOB)
+    if rc:
+        return {"rc": rc}
+    return {"files": {n: pathlib.Path(o, n).read_bytes() for n in os.listdir(o)
+                      if pathlib.Path(o, n).is_file()}}
 
 
 @app.local_entrypoint()
@@ -46,5 +48,8 @@ def main():
     out = pathlib.Path(os.environ["DC_GPU_OUT"])
     files = {os.path.basename(f): pathlib.Path(f).read_bytes() for f in ins}
     print(f"modal: {sum(map(len, files.values())) / 1e6:.0f} MB up")
-    for n, b in job.remote(files, json.loads(os.environ["DC_GPU_ARGS"])).items():
+    res = job.remote(files, json.loads(os.environ["DC_GPU_ARGS"]))
+    # the job's own exit code goes to gpu.py in a file: a failed job is not a provider failure
+    pathlib.Path(os.environ["DC_GPU_STATUS"]).write_text(json.dumps({"rc": res.get("rc", 0)}))
+    for n, b in res.get("files", {}).items():
         (out / n).write_bytes(b)

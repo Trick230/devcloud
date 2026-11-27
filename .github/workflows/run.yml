@@ -50,3 +50,4 @@ jobs:
           name: dc-${{ strategy.job-index }}
           path: ${{ inputs.artifacts }}
           if-no-files-found: warn
+          retention-days: 1

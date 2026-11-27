@@ -278,6 +278,8 @@ def login() -> None:
                     "https", "--web", "--insecure-storage", "--scopes", "repo,workflow"], env=env, check=True)
     t = out(run([tool("gh"), "auth", "token"], env=env))
     write(TOKEN, t.encode() + b"\n", private=True)
+    say("this token reaches every repo of the account; a narrower one: a fine-grained token "
+        "(github.com/settings/tokens, only the repos dc uses) in .dc/gh-token")
 
 
 GIT_HELPER = '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; }; f'

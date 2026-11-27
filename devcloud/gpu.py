@@ -1,6 +1,8 @@
 """GPU jobs on a free cloud GPU: Modal (monthly credits, spend limit 0 $), then Kaggle (GPU
 quota, slower to start), then Colab (no API: prints the manual steps). --long tries Kaggle
-first. A provider without its token, or that fails (quota, credits), passes the job on.
+first. A provider without its token, or that fails (quota, credits), passes the job on; a
+failure of the job's own script stops there. Kaggle's dataset and kernel are deleted after
+each job.
 
 A job is a JSON spec in the project:
 
@@ -117,13 +119,27 @@ def modal(s: dict, ins: list[str], out: str, args: list[str], env: dict) -> None
     if not (env.get("MODAL_TOKEN_ID") or os.path.isfile(os.path.expanduser("~/.modal.toml"))):
         raise Skip("no Modal token (MODAL_TOKEN_ID/MODAL_TOKEN_SECRET)")
     with tempfile.TemporaryDirectory() as d:
-        _bundle(s, d, {})
-        e = dict(env, DC_GPU_JOB=d, DC_GPU_IN=json.dumps(ins), DC_GPU_OUT=out,
-                 DC_GPU_ARGS=json.dumps(args), PYTHONIOENCODING="utf-8")
+        job, status = os.path.join(d, "job"), os.path.join(d, "status.json")
+        os.makedirs(job)
+        _bundle(s, job, {})
+        e = dict(env, DC_GPU_JOB=job, DC_GPU_IN=json.dumps(ins), DC_GPU_OUT=out,
+                 DC_GPU_ARGS=json.dumps(args), DC_GPU_STATUS=status, PYTHONIOENCODING="utf-8")
         rc = subprocess.call([exe, "run", os.path.join(HERE, "gpu_modal.py")], env=e,
                              stdin=subprocess.DEVNULL, stdout=sys.stderr)
+        job_rc = job_status(status)
+    if job_rc:
+        raise Fail(f"modal: the job failed ({job_rc}); not retried elsewhere")
     if rc != 0:
         raise Skip(f"modal run failed ({rc})")
+
+
+def job_status(path: str) -> int:
+    """The job's own exit code from the provider's status file, 0 when there is none."""
+    try:
+        with open(path) as f:
+            return int(json.load(f).get("rc") or 0)
+    except (OSError, ValueError, AttributeError):
+        return 0
 
 
 def _kaggle_user(env: dict) -> str:
@@ -137,17 +153,17 @@ def _kaggle_user(env: dict) -> str:
 
 
 def kaggle(s: dict, ins: list[str], out: str, args: list[str], env: dict) -> None:
-    """The job and its inputs as a new version of a private dataset, gpu_kaggle.py as a
-    private GPU kernel reading it; waits for the kernel and downloads its outputs."""
+    """The job and its inputs as a private dataset, gpu_kaggle.py as a private GPU kernel
+    reading it; waits for the kernel, downloads its outputs, then deletes both."""
     exe = cli("kaggle")
     if not exe:
         raise Skip("no kaggle CLI")
     user = _kaggle_user(env)
-    slug = f"dc-{s['name']}"
+    nonce = os.urandom(8).hex()          # the outputs must come from this upload
+    slug = f"dc-{s['name'][:30]}-{nonce[:6]}"
     ds, kn = f"{user}/{slug}-in", f"{user}/{slug}"
     with tempfile.TemporaryDirectory() as d:
         data, kern, res = (os.path.join(d, x) for x in ("data", "kernel", "out"))
-        nonce = os.urandom(8).hex()      # the outputs must come from this upload
         names = [os.path.basename(f) for f in ins]
         reserved = {os.path.basename(f) for f in s["ship"]} | {"job.json", "dataset-metadata.json"}
         if set(names) & reserved:
@@ -157,41 +173,50 @@ def kaggle(s: dict, ins: list[str], out: str, args: list[str], env: dict) -> Non
             shutil.copy(f, data)
         with open(os.path.join(data, "dataset-metadata.json"), "w") as f:
             json.dump({"title": f"{slug}-in", "id": ds, "licenses": [{"name": "CC0-1.0"}]}, f)
-        if _run([exe, "datasets", "status", ds], env).returncode == 0:
-            r = _run([exe, "datasets", "version", "-p", data, "-m", "job", "-q"], env)
-        else:
-            r = _run([exe, "datasets", "create", "-p", data, "-q"], env)   # private by default
-        if r.returncode != 0:
-            raise Skip(f"kaggle dataset upload failed: {(r.stderr or r.stdout).strip()[-300:]}")
-        say("kaggle: inputs uploaded, waiting for the dataset")
-        _kaggle_wait(exe, env, ["datasets", "status", ds], ("ready",), ("error",), 900)
-        os.makedirs(kern)
-        shutil.copy(os.path.join(HERE, "gpu_kaggle.py"), kern)
-        with open(os.path.join(kern, "kernel-metadata.json"), "w") as f:
-            json.dump({"id": kn, "title": slug, "code_file": "gpu_kaggle.py",
-                       "language": "python", "kernel_type": "script", "is_private": True,
-                       "enable_gpu": True, "enable_internet": True,
-                       "machine_shape": s.get("kaggle_gpu", "NvidiaTeslaT4"),
-                       "dataset_sources": [ds]}, f)
-        r = _run([exe, "kernels", "push", "-p", kern], env)
-        if r.returncode != 0 or "error" in r.stdout.lower():
-            raise Skip(f"kaggle kernel push failed: {(r.stderr or r.stdout).strip()[-300:]}")
-        say("kaggle: kernel running")
-        _kaggle_wait(exe, env, ["kernels", "status", kn], ("complete",), ("error", "cancel"),
-                     max(3600, int(s.get("timeout", 3600))) * 3)
-        os.makedirs(res)
-        r = _run([exe, "kernels", "output", kn, "-p", res], env)
         try:
-            with open(os.path.join(res, "dc-out.json")) as f:
-                got = json.load(f)
-        except (OSError, ValueError):
-            raise Skip(f"kaggle: no outputs {(r.stderr or r.stdout).strip()[-300:]}")
-        if got.get("nonce") != nonce:
-            raise Skip("kaggle: the outputs are another job's (two jobs at once?)")
-        if got.get("rc"):
-            raise Skip(f"kaggle: the job failed ({got['rc']})")
-        for n in got["files"]:
-            shutil.move(os.path.join(res, n), os.path.join(out, n))
+            _kaggle_job(exe, env, s, data, kern, res, ds, kn, nonce, out)
+        finally:
+            _kaggle_clean(exe, env, ds, kn)   # nothing of the job stays on Kaggle
+
+
+def _kaggle_clean(exe, env, ds, kn) -> None:
+    _run([exe, "kernels", "delete", kn, "-y"], env)
+    _run([exe, "datasets", "delete", ds, "-y"], env)
+
+
+def _kaggle_job(exe, env, s, data, kern, res, ds, kn, nonce, out) -> None:
+    r = _run([exe, "datasets", "create", "-p", data, "-q"], env)   # private by default
+    if r.returncode != 0:
+        raise Skip(f"kaggle dataset upload failed: {(r.stderr or r.stdout).strip()[-300:]}")
+    say("kaggle: inputs uploaded, waiting for the dataset")
+    _kaggle_wait(exe, env, ["datasets", "status", ds], ("ready",), ("error",), 900)
+    os.makedirs(kern)
+    shutil.copy(os.path.join(HERE, "gpu_kaggle.py"), kern)
+    with open(os.path.join(kern, "kernel-metadata.json"), "w") as f:
+        json.dump({"id": kn, "title": kn.split("/")[1], "code_file": "gpu_kaggle.py",
+                   "language": "python", "kernel_type": "script", "is_private": True,
+                   "enable_gpu": True, "enable_internet": True,
+                   "machine_shape": s.get("kaggle_gpu", "NvidiaTeslaT4"),
+                   "dataset_sources": [ds]}, f)
+    r = _run([exe, "kernels", "push", "-p", kern], env)
+    if r.returncode != 0 or "error" in r.stdout.lower():
+        raise Skip(f"kaggle kernel push failed: {(r.stderr or r.stdout).strip()[-300:]}")
+    say("kaggle: kernel running")
+    _kaggle_wait(exe, env, ["kernels", "status", kn], ("complete",), ("error", "cancel"),
+                 max(3600, int(s.get("timeout", 3600))) * 3)
+    os.makedirs(res)
+    r = _run([exe, "kernels", "output", kn, "-p", res], env)
+    try:
+        with open(os.path.join(res, "dc-out.json")) as f:
+            got = json.load(f)
+    except (OSError, ValueError):
+        raise Skip(f"kaggle: no outputs {(r.stderr or r.stdout).strip()[-300:]}")
+    if got.get("nonce") != nonce:
+        raise Skip("kaggle: the outputs are another job's (two jobs at once?)")
+    if got.get("rc"):
+        raise Fail(f"kaggle: the job failed ({got['rc']}); not retried elsewhere")
+    for n in got["files"]:
+        shutil.move(os.path.join(res, n), os.path.join(out, n))
 
 
 def _kaggle_wait(exe, env, args, ok, bad, timeout) -> None:

@@ -94,6 +94,17 @@ class Drive(unittest.TestCase):
         self.assertIsNone(drive._authorize_token("--->\nnot-a-token\n<---"))
         self.assertIsNone(drive._authorize_token("nothing"))
 
+    def test_walk_skips_private(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            for rel in (".env", ".env.local", "id.pem", "a/keep.txt", ".git/config",
+                        ".lls/x/bin", "a/node_modules/m.js", "b/.env"):
+                f = os.path.join(d, *rel.split("/"))
+                os.makedirs(os.path.dirname(f), exist_ok=True)
+                open(f, "w").close()
+            got = sorted(os.path.relpath(f, d).replace(os.sep, "/") for f in drive.walk(d))
+        self.assertEqual(got, ["a/keep.txt"])
+
     def test_remote(self):
         p = core.Project("/r", "Proj", "o/Proj")
         self.assertEqual(drive.remote(p), "DCDRIVE:Projects/Proj")
@@ -112,6 +123,25 @@ class Claude(unittest.TestCase):
                     "claude/x/CLAUDE.md.dc-remote"):
             self.assertTrue(claude.SKIP.search(bad), bad)
         self.assertFalse(claude.SKIP.search("claude/projects/P/.claude/settings.json"))
+
+    def test_runs_code(self):
+        for rel in ("claude/global/claude/settings.json", "claude/global/claude/tools/dc-hook.sh",
+                    "claude/projects/P/.claude/hooks/x.py"):
+            self.assertTrue(claude.runs_code(rel), rel)
+        self.assertFalse(claude.runs_code("claude/global/claude/CLAUDE.md"))
+        self.assertFalse(claude.runs_code("claude/projects/P/memory/state.md"))
+
+
+class Gpu(unittest.TestCase):
+    def test_job_status(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as d:
+            f = os.path.join(d, "s.json")
+            self.assertEqual(gpu.job_status(f), 0)          # no file: provider trouble, not the job
+            for body, rc in (('{"rc": 3}', 3), ('{"rc": 0}', 0), ("junk", 0), ("[]", 0)):
+                with open(f, "w") as fh:
+                    fh.write(body)
+                self.assertEqual(gpu.job_status(f), rc, body)
 
 
 class Write(unittest.TestCase):
