@@ -100,7 +100,13 @@ Every command group, accounts, and the Claude Code web environment setup:
   re-encrypts everything. Secrets are encrypted to that one key only: a second key added to
   `recipients.txt` in the state repo stops `dc` instead of receiving them.
 - The GitHub token should be fine-grained and limited to the needed repos. `dc check` shows its
-  expiry, and sessions warn from 14 days before it.
+  expiry, and sessions warn from 14 days before it (not in web sessions, where the sandbox's
+  own short-lived token answers). Web sessions get two narrower tokens: one for the projects
+  and devcloud (Contents read, Actions and Secrets read/write) and one for the state repo only.
+- Code is vouched for: a web session fast-forwards devcloud only to commits a machine holding
+  the age key vouched for, and the PC brings in a web session's `claude/*` branch only when
+  that session vouched for it. A leaked token cannot push code that then runs on a machine.
+- Recommended: a branch ruleset on each repo's main branch (no force-push, no deletion).
 - A project's Actions secret holds only the global groups it names in `DC_GLOBAL`. Workflows
   from forks never get it.
 - Logs and artifacts of a public repo are public: copyrighted data moves only through Drive.
@@ -143,7 +149,8 @@ CI runs the tests on Linux and Windows, x64 and ARM64, on every push.
 - `dc claude` does not propagate deletions; a file changed on two machines leaves the other
   copy as `<name>.dc-remote`: merge it into the file and delete it, and the next push stores
   your version.
-- A Claude Code web session reaches only the repos it was started with.
+- A Claude Code web session reaches only the repos it was started with, and its GitHub proxy
+  refuses Actions secret writes: run `dc secrets gh` on a PC.
 
 ## Acknowledgements
 
