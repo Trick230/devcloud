@@ -44,7 +44,7 @@ def env_text() -> str:
         except OSError:
             return what
     tok = token(core.WEB_TOKEN, f"(put it in {core.WEB_TOKEN}: fine-grained, the project repos and "
-                "devcloud; Contents read, Actions read/write)")
+                "devcloud; Contents read, Actions and Secrets read/write)")
     stok = token(core.STATE_TOKEN, f"(put it in {core.STATE_TOKEN}: fine-grained, only "
                  f"{core.state_repo()}; Contents read/write)")
     lines = [

@@ -83,7 +83,7 @@ claude.ai, with the real values: variables, setup script and network allowlist.
 
 | Setting | Value |
 |---|---|
-| Variables | `DC_AGE_KEY` (from `dc key`), `DC_GH_TOKEN` (fine-grained token, file `.dc/gh-token-web`: devcloud and the project repos; Contents read, Actions read/write), `DC_GH_STATE_TOKEN` (fine-grained token, file `.dc/gh-token-state`: devcloud-state only; Contents read/write) |
+| Variables | `DC_AGE_KEY` (from `dc key`), `DC_GH_TOKEN` (fine-grained token, file `.dc/gh-token-web`: devcloud and the project repos; Contents read, Actions and Secrets read/write), `DC_GH_STATE_TOKEN` (fine-grained token, file `.dc/gh-token-state`: devcloud-state only; Contents read/write) |
 | Setup script | clones or updates devcloud, then `~/devcloud/dc setup --web` |
 | Repositories | start each session with the project **and** `<owner>/devcloud-state` selected (other repos get HTTP 403 from the session proxy) |
 | Network | github.com, objects.githubusercontent.com, release-assets.githubusercontent.com, pypi.org, files.pythonhosted.org, download.pytorch.org, static.rust-lang.org, crates.io, static.crates.io, www.kaggle.com, kaggle.com, modal.com, api.modal.com, www.googleapis.com, oauth2.googleapis.com, *.googleusercontent.com |
