@@ -29,6 +29,7 @@
 
   dc claude pull|push [--quiet]   ~/.claude, memory and the projects' agent files
   dc trust                  sign the state repo's files as they are (after reading them)
+  dc vouched REPO SHA       exit 0 when a PC holding the age key vouched for that commit (web-boot.sh)
   dc account [save NAME | use NAME | next]
                             Claude Code accounts on this machine: save the signed-in one, switch
                             to another without the browser (settings, memory, sessions shared)
@@ -258,6 +259,12 @@ def main(argv: list[str]) -> int:
                 say(f"trusted {r}")
             say("trust: done")
             return 0
+        if cmd == "vouched":
+            ap.add_argument("repo")
+            ap.add_argument("sha")
+            a = ap.parse_args(rest)
+            core.ensure_state()
+            return 0 if core.vouched(a.repo, a.sha, kind="pc") else 1
         if cmd == "claude":
             ap.add_argument("action", choices=["pull", "push"])
             ap.add_argument("--quiet", action="store_true")

@@ -29,6 +29,11 @@ def preps() -> list[str]:
 def env_text() -> str:
     core.ensure_state()
     o = core.owner()
+    sha = core.head_sha(core.ROOT)
+    pushed = core.git("merge-base", "--is-ancestor", "HEAD", "origin/main", cwd=core.ROOT, check=False)
+    if not sha or pushed.returncode != 0:
+        raise core.Fail("push devcloud first: the setup script pins this checkout's commit")
+    core.vouch_self()
     setup = " ".join(["~/devcloud/dc setup --web", *(f"--prep {shlex.quote(p)}" for p in preps())])
     # the secret line alone: the key file's comment lines would not fit a one-line variable
     key = next((s.strip() for s in core.read(core.KEY).decode().splitlines()
@@ -43,7 +48,10 @@ def env_text() -> str:
         "",
         "Setup script:",
         "#!/bin/sh",
-        f"git clone -q https://github.com/{o}/devcloud ~/devcloud 2>/dev/null || git -C ~/devcloud pull -q",
+        # the image runs this commit, not whatever the devcloud repo holds (the GitHub token alone
+        # can push there); sessions then move on only to commits a PC vouched for (web-boot.sh)
+        f"git clone -q https://github.com/{o}/devcloud ~/devcloud 2>/dev/null; "
+        f"git -C ~/devcloud fetch -q origin main && git -C ~/devcloud checkout -q --detach {sha} || exit 1",
         setup,
         "",
         "Network access: custom, allowed domains:",

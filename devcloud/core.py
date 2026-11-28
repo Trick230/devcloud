@@ -616,7 +616,7 @@ def rotate_key() -> list[str]:
         os.chmod(KEY, 0o600)
     new_mac = mac_key(KEY)
     sigs = [s for s in (sign(f, new_mac) for f in vouched) if s]
-    commit_state("age key rotated", ["recipients.txt", *rels, *sigs])
+    commit_state("age key rotated", ["recipients.txt", *rels, *sigs, *revouch(old_mac, new_mac)])
     os.remove(old)
     return rels
 
@@ -651,7 +651,8 @@ def signed(rel: str, key: bytes) -> bool:
         mac = read(_sig_file(rel)).decode().strip()
     except (OSError, UnicodeDecodeError):
         return False
-    return bool(digest) and hmac.compare_digest(mac, _mac(rel, digest or "", key))
+    return (bool(digest) and re.fullmatch(r"[0-9a-f]{64}", mac) is not None
+            and hmac.compare_digest(mac, _mac(rel, digest or "", key)))
 
 
 def sign(rel: str, key: bytes) -> str | None:
@@ -666,7 +667,8 @@ def sign(rel: str, key: bytes) -> str | None:
 def unsigned_files(key: bytes) -> list[str]:
     """Tracked state files without a valid signature (signatures, sessions and reports aside)."""
     files = out(git("ls-files", cwd=STATE)).splitlines()
-    return [f for f in files if f and not f.startswith((f"{SIGS}/", "sessions/", "reports/"))
+    return [f for f in files if f and not f.startswith((f"{SIGS}/", "sessions/", "reports/",
+                                                          f"{VOUCHED}/"))
             and f not in ("README.md", ".gitignore") and not signed(f, key)]
 
 
@@ -680,6 +682,89 @@ def trust() -> list[str]:
     if sigs:
         commit_state(f"trust {len(sigs)} file(s)", sigs)
     return rels
+
+
+VOUCHED = "vouched"   # vouched/<kind>/<repo>.json {sha: mac}: commits a machine holding the age key vouched for
+VOUCH_KINDS = ("pc", "web")   # pc: a PC's own devcloud (web-boot.sh takes only these); web: claude/* heads
+VOUCH_KEEP = 300      # per repo and kind, newest last
+
+
+def _commit_mac(kind: str, repo: str, sha: str, key: bytes) -> str:
+    return hmac.new(key, f"commit\0{kind}\0{repo}\0{sha}".encode(), "sha256").hexdigest()
+
+
+def _vouched_rel(kind: str, repo: str) -> str:
+    if kind not in VOUCH_KINDS or not re.fullmatch(r"[A-Za-z0-9._-]+", repo):
+        raise Fail(f"{kind!r} {repo!r}: not a vouch kind and repository name")
+    return f"{VOUCHED}/{kind}/{repo}.json"
+
+
+def _vouched(kind: str, repo: str) -> dict:
+    try:
+        d = json.loads(read(os.path.join(STATE, *_vouched_rel(kind, repo).split("/"))))
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def _mac_ok(mac, kind: str, repo: str, sha: str, key: bytes) -> bool:
+    return (isinstance(mac, str) and re.fullmatch(r"[0-9a-f]{64}", mac) is not None
+            and hmac.compare_digest(mac, _commit_mac(kind, repo, sha, key)))
+
+
+def vouched(repo: str, sha: str, key: bytes | None = None, kind: str = "web") -> bool:
+    """A machine holding the age key vouched for commit sha of repo: someone with only the
+    GitHub token can push commits, but not make them pass this (each entry carries its own MAC)."""
+    return _mac_ok(_vouched(kind, repo).get(sha), kind, repo, sha, key or mac_key())
+
+
+def vouch(repo: str, shas: list[str], key: bytes | None = None, kind: str = "web") -> list[str]:
+    """Vouches for commits this machine made or took in (a PC's devcloud, a web session's claude/*
+    branches); a state commit (and pull) only when one is new. Returns the new ones."""
+    key = key or mac_key()
+    shas = [s for s in dict.fromkeys(shas) if re.fullmatch(r"[0-9a-f]{40}", s)]
+    d = _vouched(kind, repo)
+    if all(_mac_ok(d.get(s), kind, repo, s, key) for s in shas):
+        return []   # the common case: nothing new, no pull
+    ensure_state()
+    d = _vouched(kind, repo)
+    new = [s for s in shas if not _mac_ok(d.get(s), kind, repo, s, key)]
+    for s in new:
+        d[s] = _commit_mac(kind, repo, s, key)
+    d = dict(list(d.items())[-VOUCH_KEEP:])
+    rel = _vouched_rel(kind, repo)
+    write(os.path.join(STATE, *rel.split("/")), (json.dumps(d, indent=0) + "\n").encode())
+    commit_state(f"vouch {kind} {repo} {new[-1][:12]}", [rel])
+    return new
+
+
+def revouch(old: bytes, new: bytes) -> list[str]:
+    """Key rotation: every valid vouch re-made with the new key; the changed state paths."""
+    changed = []
+    for kind in VOUCH_KINDS:
+        folder = os.path.join(STATE, VOUCHED, kind)
+        for f in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+            repo = f.removesuffix(".json")
+            if not f.endswith(".json") or not re.fullmatch(r"[A-Za-z0-9._-]+", repo):
+                continue
+            d = {s: _commit_mac(kind, repo, s, new) for s, m in _vouched(kind, repo).items()
+                 if _mac_ok(m, kind, repo, s, old)}
+            rel = _vouched_rel(kind, repo)
+            write(os.path.join(STATE, *rel.split("/")), (json.dumps(d, indent=0) + "\n").encode())
+            changed.append(rel)
+    return changed
+
+
+def head_sha(root: str) -> str:
+    return out(git("rev-parse", "HEAD", cwd=root, check=False))
+
+
+def vouch_self(key: bytes | None = None) -> None:
+    """A PC vouches for its own devcloud checkout: web sessions take in only these updates
+    (web-boot.sh), so a push with the GitHub token alone does not reach them."""
+    sha = head_sha(ROOT)
+    if sha:
+        vouch("devcloud", [sha], key, kind="pc")
 
 
 def encrypt(data: bytes) -> bytes:

@@ -184,6 +184,40 @@ class Signed(unittest.TestCase):
             finally:
                 core.STATE = old
 
+    def test_vouched(self):
+        import tempfile
+        saved = core.STATE, core.mac_key, core.ensure_state, core.commit_state
+        commits = []
+        with tempfile.TemporaryDirectory() as d:
+            core.STATE = d
+            core.mac_key = lambda path=None: b"k" * 32
+            core.ensure_state = lambda: None
+            core.commit_state = lambda msg, paths: commits.append(paths)
+            try:
+                a, b = "a" * 40, "b" * 40
+                self.assertFalse(core.vouched("proj", a))
+                self.assertEqual(core.vouch("proj", [a, "junk", a]), [a])
+                self.assertEqual(core.vouch("proj", [a]), [])                 # nothing new: no commit
+                self.assertEqual(commits, [["vouched/web/proj.json"]])
+                self.assertTrue(core.vouched("proj", a))
+                self.assertFalse(core.vouched("proj", b))
+                self.assertFalse(core.vouched("other", a))                    # bound to the repo
+                self.assertFalse(core.vouched("proj", a, kind="pc"))          # a web vouch is not a PC's
+                self.assertFalse(core.vouched("proj", a, b"z" * 32))          # another key
+                f = os.path.join(d, "vouched", "web", "proj.json")
+                with open(f, "w", encoding="utf-8") as fh:                     # token-only edit
+                    fh.write('{"%s": "%s", "%s": "%s"}' % (b, "0" * 64, a, "\u00e9" * 64))
+                self.assertFalse(core.vouched("proj", b))
+                self.assertFalse(core.vouched("proj", a))                     # not hex: no TypeError
+                core.vouch("proj", [a])
+                self.assertEqual(core.revouch(b"k" * 32, b"n" * 32), ["vouched/web/proj.json"])
+                self.assertTrue(core.vouched("proj", a, b"n" * 32))           # rotation keeps it
+                self.assertFalse(core.vouched("proj", b, b"n" * 32))          # but not forged ones
+                with self.assertRaises(core.Fail):
+                    core.vouched("../x", a)
+            finally:
+                core.STATE, core.mac_key, core.ensure_state, core.commit_state = saved
+
     def test_resolved(self):
         import tempfile
         with tempfile.TemporaryDirectory() as d:
@@ -355,6 +389,10 @@ class Session(unittest.TestCase):
             pc = os.path.join(d, "pc")
             commit(w, "web1")
             sh("push", "-q", "origin", "HEAD:claude/a", cwd=w)
+            msgs = session.branches(pc, lambda sha: False)                 # not vouched: reported only
+            self.assertEqual(len(msgs), 1)
+            self.assertIn("vouched", msgs[0])
+            self.assertFalse(os.path.exists(os.path.join(pc, "web1")))
             msgs = session.branches(pc)
             self.assertEqual(len(msgs), 1)
             self.assertIn("fast-forwarded to origin/claude/a", msgs[0])
@@ -390,6 +428,38 @@ class Session(unittest.TestCase):
             refs = sh("ls-remote", "--heads", "origin", cwd=pc).stdout.decode()
             self.assertNotIn("claude/b", refs)
             self.assertIn("claude/c", refs)
+            sh("push", "-q", "origin", "--delete", "claude/c", cwd=w)
+            sh("fetch", "-q", cwd=w)
+            sh("checkout", "-q", "-B", "m", "origin/master", cwd=w)
+            commit(w, "evil")                                                   # token-only push to master
+            sh("push", "-q", "origin", "HEAD:master", cwd=w)
+            evil = sh("rev-parse", "HEAD", cwd=w).stdout.decode().strip()
+            session.mark_start(w)                                               # a web session starts on it
+            sh("checkout", "-q", "-b", "claude/d", cwd=w)
+            commit(w, "web4")
+            mine = session.web_commits(w)
+            self.assertEqual(len(mine), 1)                                      # only its own commit
+            self.assertNotIn(evil, mine)
+            sh("push", "-q", "origin", "HEAD:claude/d", cwd=w)
+            self.assertEqual(session.web_commits(w), mine)                      # still after its push
+            sh("push", "-q", "-f", "origin", "HEAD~2:master", cwd=w)           # master rewound
+            msgs = session.branches(pc, lambda c: c in mine)
+            self.assertTrue(any("claude/d: 1 of its 2 new commit(s)" in m for m in msgs), msgs)
+            self.assertFalse(os.path.exists(os.path.join(pc, "evil")))
+            sh("push", "-q", "origin", "HEAD:claude/d", cwd=w)
+            sh("clone", "-q", "o.git", "w2")                                   # mid-session push to its branch
+            w2 = os.path.join(d, "w2")
+            sh("checkout", "-q", "claude/d", cwd=w2)
+            commit(w2, "evil2")
+            sh("push", "-q", "origin", "HEAD:claude/d", cwd=w2)
+            sh("pull", "-q", "--rebase", "origin", "claude/d", cwd=w)            # the agent pulls it in
+            commit(w, "web5")
+            mine2 = session.web_commits(w)
+            self.assertEqual(len(mine2), 2)                                     # web4 and web5, not evil2
+            evil2 = sh("rev-parse", "HEAD~1", cwd=w).stdout.decode().strip()
+            self.assertNotIn(evil2, mine2)
+            os.remove(session._start_file(w))
+            self.assertEqual(session.web_commits(w), [])                        # no start mark: nothing
 
 
 if __name__ == "__main__":

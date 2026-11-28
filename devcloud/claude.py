@@ -150,6 +150,11 @@ def push(quiet: bool = False) -> None:
     projects = core.known_projects()
     sync = core.load_sync()
     key = _key()
+    if key and not os.environ.get("CLAUDE_CODE_REMOTE") and not core.CI:
+        try:
+            core.vouch_self(key)
+        except Exception as e:   # the memory sync below must still happen
+            say(f"claude: devcloud not vouched for ({e})")
     changed, conflicts = [], []
     for rel, local in sorted(pairs(projects).items()):
         stored = os.path.join(core.STATE, *rel.split("/"))

@@ -12,6 +12,7 @@ the session's context, so a quiet start costs no tokens.
 """
 import json
 import os
+import re
 import socket
 import time
 
@@ -80,9 +81,60 @@ def merged(g, b: str, up: str) -> bool:
     return bool(base) and g("diff", "--quiet", base, b).returncode == 0
 
 
-def branches(root: str) -> list[str]:
+START = "dc-start"   # in .git: how many HEAD reflog entries there were when a web session started
+MADE = re.compile(r"(commit|cherry-pick|revert)\b|.*\((pick|squash|fixup|reword|edit|continue)\)")
+
+
+def _start_file(root: str) -> str:
+    rel = core.out(core.git("rev-parse", "--git-path", START, cwd=root, check=False))
+    return os.path.join(root, rel or os.path.join(".git", START))
+
+
+def _reflog(root: str) -> list[tuple[str, str]]:
+    """HEAD's reflog, newest first: (sha, what made it)."""
+    r = core.git("reflog", "show", "--format=%H%x09%gs", "HEAD", "--", cwd=root, check=False)
+    return [(ln.partition("\t")[0], ln.partition("\t")[2])
+            for ln in core.out(r).splitlines()] if r.returncode == 0 else []
+
+
+def mark_start(root: str) -> None:
+    """Web, at SessionStart: everything before this was not made by this session."""
+    core.write(_start_file(root), f"{len(_reflog(root))}\n".encode())
+
+
+def web_commits(root: str) -> list[str]:
+    """The commits this web session made itself (commit, amend, merge, cherry-pick, a rebase's
+    picks) on its claude/* branches, from HEAD's reflog since it started. Not what a pull or a
+    rebase brought in: anyone with the GitHub token alone can push those. Without the start mark
+    (an older devcloud started it) nothing: the PC then only reports the branch."""
+    try:
+        n = int(core.read(_start_file(root)).decode().strip())
+    except (OSError, ValueError):
+        return []
+    log = _reflog(root)
+    made = {sha for sha, what in log[:max(len(log) - n, 0)] if MADE.match(what)}
+    g = lambda *a: core.git(*a, cwd=root, check=False)  # noqa: E731
+    heads = core.out(g("for-each-ref", "--format=%(objectname)", "refs/heads/claude/")).split()
+    if not made or not heads:
+        return []
+    reach = core.out(g("rev-list", "--max-count=2000", *heads)).split()
+    return [c for c in reach if c in made]
+
+
+def vouch_web(p: core.Project) -> None:
+    if os.environ.get("CLAUDE_CODE_REMOTE"):
+        try:
+            core.vouch(p.name, web_commits(p.root), kind="web")
+        except Exception:   # a hook: no key, state or network just means the PC asks first
+            pass
+
+
+def branches(root: str, trusted=lambda sha: True) -> list[str]:
     """A PC's checked-out branch fast-forwarded to origin/claude/* (web work); diverged ones reported;
-    the ones whose work is already in the pushed branch deleted from origin (the PC can, the web can't)."""
+    the ones whose work is already in the pushed branch deleted from origin (the PC can, the web can't).
+    trusted(sha): a web session holding the age key vouched for that commit (see vouch_web); anyone
+    with the GitHub token alone can push a claude/* branch, so one bringing in any other commit is
+    only reported."""
     g = lambda *a: core.git(*a, cwd=root, check=False)
     head = core.out(g("rev-parse", "--abbrev-ref", "HEAD"))
     if not head or head == "HEAD" or head.startswith("claude/"):
@@ -104,6 +156,13 @@ def branches(root: str) -> list[str]:
             continue
         if not any(ln.startswith("+") for ln in core.out(g("cherry", "HEAD", b)).splitlines()):
             continue   # its changes are already in (rebased or cherry-picked by hand)
+        bad = [c for c in core.out(g("rev-list", f"HEAD..{b}")).split() if not trusted(c)]
+        if bad:
+            msgs.append(f"{b}: {len(bad)} of its {n} new commit(s) no web session holding the age key "
+                        f"vouched for (pushed with the GitHub token alone, or by an older devcloud): not merged. "
+                        f"Tell the user; review `git log -p HEAD..{b}` with them before merging it by hand, "
+                        f"or delete it: git push origin --delete {b.removeprefix('origin/')}")
+            continue
         if g("merge-base", "--is-ancestor", "HEAD", b).returncode == 0:
             r = g("merge", "-q", "--ff-only", b)
             if r.returncode == 0:
@@ -159,11 +218,34 @@ def start(sid: str, source: str = "startup") -> list[str]:
     p = core.project()
     if not p:
         return []
-    msgs = [] if os.environ.get("CLAUDE_CODE_REMOTE") or source != "startup" else branches(p.root)
-    try:
-        if not (pulled and os.path.isdir(os.path.join(core.STATE, ".git"))):
-            core.ensure_state()
-    except core.Fail as e:   # the branch news above must still reach the agent
+    if os.environ.get("CLAUDE_CODE_REMOTE") and source == "startup" and not os.path.exists(_start_file(p.root)):
+        mark_start(p.root)
+    state: list = []   # [None] once the state repo is fresh, [the Fail] when that failed
+    keys: list = []
+
+    def fresh() -> core.Fail | None:
+        if not state:
+            try:
+                if not (pulled and os.path.isdir(os.path.join(core.STATE, ".git"))):
+                    core.ensure_state()
+                state.append(None)
+            except core.Fail as e:
+                state.append(e)
+        return state[0]
+
+    def trusted(sha: str) -> bool:
+        try:
+            if fresh() is not None:
+                return False
+            if not keys:
+                keys.append(core.mac_key())
+            return core.vouched(p.name, sha, keys[0], kind="web")
+        except core.Fail:
+            return False
+
+    msgs = [] if os.environ.get("CLAUDE_CODE_REMOTE") or source != "startup" else branches(p.root, trusted)
+    e = fresh()
+    if e:   # the branch news above must still reach the agent
         return msgs + [f"dc session: no session check ({e})"]
     w = other_active(_load(os.path.join(core.STATE, _rel(p))), sid, time.time(), handed_off(p.root))
     if w:
@@ -187,6 +269,7 @@ def beat(sid: str) -> None:
     p = core.project()
     if not p:
         return
+    vouch_web(p)
     c = _load(os.path.join(core.STATE, _rel(p)))
     if c and c.get("session") == sid and time.time() - float(c.get("time", 0)) < BEAT:
         return       # fresh enough: no state commit on every reply
@@ -201,6 +284,7 @@ def end(sid: str) -> None:
     p = core.project()
     if not p:
         return
+    vouch_web(p)
     core.ensure_state()
     rel = _rel(p)
     path = os.path.join(core.STATE, rel)
