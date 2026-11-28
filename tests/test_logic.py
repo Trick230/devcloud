@@ -17,6 +17,22 @@ class GitIdentity(unittest.TestCase):
         self.assertIsNone(session.identity("Claude", "", "", {}))       # no account: left alone
 
 
+class CommitState(unittest.TestCase):
+    def test_push_retries_after_race(self):
+        calls, pushes = [], iter([1, 0])
+        class R:
+            def __init__(self, rc, out=b""):
+                self.returncode, self.stdout = rc, out
+        def git(*a, **k):
+            calls.append(a[0])
+            if a[0] == "push":
+                return R(next(pushes))
+            return R(0 if a[0] == "rev-parse" else 1)   # upstream set, staged changes
+        with unittest.mock.patch.object(core, "git", git),                 unittest.mock.patch.object(core, "pull_state", lambda: calls.append("pull")),                 unittest.mock.patch.object(core.time, "sleep", lambda s: None):
+            core.commit_state("m", ["f"])
+        self.assertEqual([c for c in calls if c in ("pull", "push")], ["pull", "push", "pull", "push"])
+
+
 class TokenExpiry(unittest.TestCase):
     def test_web_none(self):
         with unittest.mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": "true", "DC_GH_TOKEN": "x"}):

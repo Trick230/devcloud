@@ -506,8 +506,13 @@ def commit_state(msg: str, paths: list[str]) -> None:
         git("-c", "user.name=devcloud", "-c", "user.email=devcloud@users.noreply.github.com",
             "commit", "-q", "-m", msg, cwd=STATE)
     if upstream:
-        pull_state()
-        git("push", "-q", cwd=STATE)
+        # another machine may push in between (two sessions, a hook): pull again and retry
+        for attempt in range(3):
+            pull_state()
+            r = git("push", "-q", cwd=STATE, check=attempt == 2)
+            if r.returncode == 0:
+                break
+            time.sleep(1 + attempt)
     else:
         git("push", "-q", "-u", "origin", "HEAD:main", cwd=STATE)
 
