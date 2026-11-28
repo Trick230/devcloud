@@ -205,6 +205,9 @@ def git_identity() -> None:
     if who:
         g("user.name", who[0])
         g("user.email", who[1])
+        # the sandbox signs with a key GitHub verifies only for its own identity: under the
+        # account's the commits would show "Unverified", so they go out unsigned, like a PC's
+        g("commit.gpgsign", "false")
 
 
 def start(sid: str, source: str = "startup") -> list[str]:

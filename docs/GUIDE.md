@@ -105,6 +105,8 @@ How a session boots:
    (`~/.claude/tools/dc-hook.sh`) take over from there and `dc secrets pull` brings the `.env`.
    `dc session start` replaces the sandbox's git identity (Claude) with the token's GitHub
    account and its noreply address; `DC_GIT_NAME`/`DC_GIT_EMAIL` in the environment override it.
+   It also turns off the sandbox's commit signing: GitHub verifies that key only for the Claude
+   identity, so under the account's the commits would show "Unverified".
 3. The project's `.claude/web-setup.sh`, if any, runs in the background (log in
    `$TMPDIR/dc-web-setup-<project>.log`). With `--prep`, heavy downloads are pre-built into the
    cached image under `~/dc-prep/<repo>`, exposed to the project as `$DC_PREP`.
