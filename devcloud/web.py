@@ -38,13 +38,22 @@ def env_text() -> str:
     # the secret line alone: the key file's comment lines would not fit a one-line variable
     key = next((s.strip() for s in core.read(core.KEY).decode().splitlines()
                 if s.startswith("AGE-SECRET-KEY-")), "")
-    tok = core.gh_token() or "(none: dc setup signs in to GitHub)"
+    def token(path: str, what: str) -> str:
+        try:
+            return core.read(path).decode().strip() or what
+        except OSError:
+            return what
+    tok = token(core.WEB_TOKEN, f"(put it in {core.WEB_TOKEN}: fine-grained, the project repos and "
+                "devcloud; Contents read, Actions read/write)")
+    stok = token(core.STATE_TOKEN, f"(put it in {core.STATE_TOKEN}: fine-grained, only "
+                 f"{core.state_repo()}; Contents read/write)")
     lines = [
         "claude.ai > Claude Code > environments > new (name: devcloud). Connect GitHub to this account first.",
         "",
         "Environment variables:",
         f"DC_AGE_KEY={key}",
         f"DC_GH_TOKEN={tok}",
+        f"DC_GH_STATE_TOKEN={stok}",
         "",
         "Setup script:",
         "#!/bin/sh",

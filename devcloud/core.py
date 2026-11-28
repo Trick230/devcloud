@@ -44,6 +44,9 @@ BIN = os.path.join(LOCAL, "bin")
 STATE = os.path.join(DC, "state")
 KEY = os.path.join(DC, "age-key.txt")
 TOKEN = os.path.join(DC, "gh-token")
+# the web environment's tokens (dc web-env): projects without Contents write, state repo alone
+WEB_TOKEN = os.path.join(DC, "gh-token-web")
+STATE_TOKEN = os.path.join(DC, "gh-token-state")
 SYNC = os.environ.get("DC_SYNC") or os.path.join(DC, "sync.json")   # DC_SYNC: tests
 CI = bool(os.environ.get("GITHUB_ACTIONS"))
 # a Claude Code web sandbox or a CI runner: its paths are not worth remembering
@@ -314,10 +317,12 @@ def token_warning(exp: float | None, now: float) -> str | None:
             ".dc/gh-token and DC_GH_TOKEN of each web environment (dc web-env)")
 
 
-def gh_env() -> dict:
+def gh_env(state: bool = False) -> dict:
+    """state: talking to the state repo, which a web session reaches with its own token
+    (DC_GH_STATE_TOKEN), so DC_GH_TOKEN there needs no Contents write on any repo."""
     env = dict(os.environ, GH_CONFIG_DIR=os.path.join(DC, "gh"), GH_PROMPT_DISABLED="1",
                NO_COLOR="1", GIT_TERMINAL_PROMPT="0")
-    t = gh_token()
+    t = (os.environ.get("DC_GH_STATE_TOKEN") if state else None) or gh_token()
     if t:
         env["GH_TOKEN"] = t
     return env
@@ -353,8 +358,9 @@ GIT_HELPER = '!f() { echo username=x-access-token; echo "password=$GH_TOKEN"; };
 def git(*args: str, cwd: str | None = None, capture: bool = True, check: bool = True,
         input: bytes | None = None) -> subprocess.CompletedProcess:
     """git with the devcloud token as credentials (never written into a remote URL)."""
+    state = cwd == STATE or STATE in args
     return run(["git", "-c", "credential.helper=", "-c", f"credential.{GH}.helper={GIT_HELPER}", *args],
-               cwd=cwd, capture=capture, check=check, input=input, env=gh_env())
+               cwd=cwd, capture=capture, check=check, input=input, env=gh_env(state))
 
 
 def owner() -> str:

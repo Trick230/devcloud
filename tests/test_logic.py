@@ -3,6 +3,7 @@ import os
 import sys
 import time
 import unittest
+import unittest.mock
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from devcloud import account, claude, core, drive, gpu, run, secrets, session  # noqa: E402
@@ -14,6 +15,23 @@ class GitIdentity(unittest.TestCase):
         self.assertEqual(session.identity("", "me", "7", {"DC_GIT_EMAIL": "a@b.c"}), ("me", "a@b.c"))
         self.assertIsNone(session.identity("Someone", "me", "7", {}))   # already set: kept
         self.assertIsNone(session.identity("Claude", "", "", {}))       # no account: left alone
+
+
+class StateToken(unittest.TestCase):
+    def test_state_token(self):
+        env = {"DC_GH_TOKEN": "proj", "DC_GH_STATE_TOKEN": "state"}
+        with unittest.mock.patch.dict(os.environ, env):
+            self.assertEqual(core.gh_env()["GH_TOKEN"], "proj")
+            self.assertEqual(core.gh_env(state=True)["GH_TOKEN"], "state")
+            seen = []
+            with unittest.mock.patch.object(core, "run", lambda a, **k: seen.append(k["env"]["GH_TOKEN"])):
+                core.git("push", cwd=core.STATE)
+                core.git("clone", "-q", "url", core.STATE)
+                core.git("fetch", cwd=core.ROOT)
+            self.assertEqual(seen, ["state", "state", "proj"])
+        with unittest.mock.patch.dict(os.environ, {"DC_GH_TOKEN": "proj"}):
+            os.environ.pop("DC_GH_STATE_TOKEN", None)
+            self.assertEqual(core.gh_env(state=True)["GH_TOKEN"], "proj")   # PC: one token
 
 
 class GpuRelay(unittest.TestCase):
