@@ -280,7 +280,11 @@ TOKEN_CACHE = 86400         # ask GitHub at most once a day
 def token_expiry(refresh: bool = False) -> float | None:
     """Expiry (epoch) of the GitHub token, None if it never expires or is unknown. GitHub
     sends it in a header on every authenticated call; cached in .dc/<plat>/gh-token-expiry
-    (keyed by the token's hash) so a session start reads a file, and only refresh asks."""
+    (keyed by the token's hash) so a session start reads a file, and only refresh asks.
+    None in a Claude Code web sandbox: its proxy swaps in its own short-lived GitHub token, so
+    the header there is about that one; the PC warns for the tokens (its own expires first)."""
+    if os.environ.get("CLAUDE_CODE_REMOTE"):
+        return None
     t = gh_token()
     if not t:
         return None

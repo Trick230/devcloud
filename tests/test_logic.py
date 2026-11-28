@@ -17,6 +17,12 @@ class GitIdentity(unittest.TestCase):
         self.assertIsNone(session.identity("Claude", "", "", {}))       # no account: left alone
 
 
+class TokenExpiry(unittest.TestCase):
+    def test_web_none(self):
+        with unittest.mock.patch.dict(os.environ, {"CLAUDE_CODE_REMOTE": "true", "DC_GH_TOKEN": "x"}):
+            self.assertIsNone(core.token_expiry(refresh=True))
+
+
 class StateToken(unittest.TestCase):
     def test_state_token(self):
         env = {"DC_GH_TOKEN": "proj", "DC_GH_STATE_TOKEN": "state"}
